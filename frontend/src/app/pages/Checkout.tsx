@@ -1,0 +1,439 @@
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import { motion, AnimatePresence } from "motion/react";
+import { toast } from "sonner";
+import { useStore } from "../store";
+import { C, FadeIn, StarRating } from "../shared";
+import { ChevronRight, Check, Truck, Shield, RotateCcw, Tag } from "lucide-react";
+
+const PROVINCES = ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Balochistan", "Islamabad (ICT)", "Azad Kashmir (AJK)", "Gilgit-Baltistan"];
+const SHIPPING  = 300;
+
+const COUPONS: Record<string, number> = { ARWA10: 10, WELCOME: 15, BOTANIQ: 20 };
+
+type PayMethod = "cod" | "jazzcash" | "easypaisa" | "card";
+
+interface CustomerInfo {
+  fullName: string;
+  phone: string;
+  email: string;
+  province: string;
+  city: string;
+  address: string;
+  postal: string;
+  notes: string;
+}
+
+// ─── Step Indicator ───────────────────────────────────────────────────────────
+function StepIndicator({ step }: { step: number }) {
+  const steps = ["Customer Info", "Payment", "Confirmation"];
+  return (
+    <div className="flex items-center justify-center gap-0 mb-10">
+      {steps.map((label, i) => (
+        <div key={i} className="flex items-center">
+          <div className="flex flex-col items-center">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300"
+              style={{ backgroundColor: i < step ? C.gold : i === step ? C.green : "rgba(26,61,43,0.12)", color: i <= step ? (i < step ? C.green : C.ivory) : C.muted, border: i === step ? `2px solid ${C.gold}` : "none", fontFamily: "'DM Sans',sans-serif" }}>
+              {i < step ? <Check size={14} /> : i + 1}
+            </div>
+            <span className="mt-1 text-[10px] tracking-wider uppercase hidden sm:block"
+              style={{ fontFamily: "'DM Sans',sans-serif", color: i <= step ? C.gold : C.muted }}>
+              {label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className="w-16 sm:w-24 h-px mx-2" style={{ backgroundColor: i < step ? C.gold : "rgba(26,61,43,0.15)" }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Input Field ──────────────────────────────────────────────────────────────
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, display: "block", marginBottom: 6 }}>
+        {label}{required && <span style={{ color: C.gold }}> *</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%", padding: "10px 14px", fontSize: "0.9rem", outline: "none",
+  border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent",
+  color: C.green, fontFamily: "'DM Sans',sans-serif",
+};
+
+// ─── Step 1: Customer Info ────────────────────────────────────────────────────
+function Step1({ info, setInfo, onNext }: { info: CustomerInfo; setInfo: (i: CustomerInfo) => void; onNext: () => void }) {
+  const update = (k: keyof CustomerInfo, v: string) => setInfo({ ...info, [k]: v });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!info.fullName || !info.phone || !info.province || !info.city || !info.address) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+    onNext();
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="grid sm:grid-cols-2 gap-5">
+        <Field label="Full Name" required>
+          <input style={inputStyle} value={info.fullName} onChange={e => update("fullName", e.target.value)} placeholder="e.g. Ayesha Khan" required />
+        </Field>
+        <Field label="Phone Number" required>
+          <input style={inputStyle} type="tel" value={info.phone} onChange={e => update("phone", e.target.value)} placeholder="+92 3XX XXXXXXX" required />
+        </Field>
+      </div>
+      <Field label="Email Address">
+        <input style={inputStyle} type="email" value={info.email} onChange={e => update("email", e.target.value)} placeholder="your@email.com" />
+      </Field>
+      <div className="grid sm:grid-cols-2 gap-5">
+        <Field label="Province" required>
+          <select style={{ ...inputStyle, backgroundColor: C.ivory }} value={info.province} onChange={e => update("province", e.target.value)} required>
+            <option value="">Select province...</option>
+            {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </Field>
+        <Field label="City" required>
+          <input style={inputStyle} value={info.city} onChange={e => update("city", e.target.value)} placeholder="e.g. Lahore" required />
+        </Field>
+      </div>
+      <Field label="Complete Address" required>
+        <textarea style={{ ...inputStyle, resize: "none" }} rows={3} value={info.address} onChange={e => update("address", e.target.value)} placeholder="House no., street, area..." required />
+      </Field>
+      <div className="grid sm:grid-cols-2 gap-5">
+        <Field label="Postal Code">
+          <input style={inputStyle} value={info.postal} onChange={e => update("postal", e.target.value)} placeholder="e.g. 54000" />
+        </Field>
+        <Field label="Order Notes">
+          <input style={inputStyle} value={info.notes} onChange={e => update("notes", e.target.value)} placeholder="Any special instructions..." />
+        </Field>
+      </div>
+      <button type="submit" className="group w-full py-4 text-sm font-medium uppercase tracking-widest flex items-center justify-center gap-2"
+        style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>
+        Continue to Payment <ChevronRight size={16} className="transition-transform group-hover:translate-x-1" />
+      </button>
+    </form>
+  );
+}
+
+// ─── Step 2: Payment ──────────────────────────────────────────────────────────
+const PAY_METHODS: { id: PayMethod; label: string; desc: string; icon: string }[] = [
+  { id: "cod",       label: "Cash on Delivery", desc: "Pay in cash when your order arrives.",      icon: "💵" },
+  { id: "jazzcash",  label: "JazzCash",          desc: "Pay instantly with your JazzCash account.", icon: "📱" },
+  { id: "easypaisa", label: "EasyPaisa",         desc: "Pay via EasyPaisa mobile account.",         icon: "🟢" },
+  { id: "card",      label: "Debit / Credit Card", desc: "Visa, Mastercard, and all major cards.",  icon: "💳" },
+];
+
+function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc, cartTotal, onBack, onPlace }: {
+  method: PayMethod; setMethod: (m: PayMethod) => void;
+  coupon: string; setCoupon: (c: string) => void;
+  couponDisc: number; setCouponDisc: (d: number) => void;
+  cartTotal: number; onBack: () => void; onPlace: () => void;
+}) {
+  const [couponInput, setCouponInput] = useState("");
+  const [terms, setTerms]             = useState(false);
+  const [cardNum,  setCardNum]        = useState("");
+  const [cardExp,  setCardExp]        = useState("");
+  const [cardCvv,  setCardCvv]        = useState("");
+
+  const discAmt    = Math.round(cartTotal * (couponDisc / 100));
+  const grandTotal = cartTotal - discAmt + SHIPPING;
+
+  const applyCoupon = () => {
+    const code = couponInput.trim().toUpperCase();
+    if (COUPONS[code]) { setCoupon(code); setCouponDisc(COUPONS[code]); toast.success(`Coupon applied! ${COUPONS[code]}% off`); }
+    else toast.error("Invalid coupon code");
+  };
+
+  const handlePlace = () => {
+    if (!terms) { toast.error("Please accept the terms and conditions"); return; }
+    onPlace();
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Payment method selector */}
+      <div>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, marginBottom: 12 }}>Payment Method</p>
+        <div className="space-y-3">
+          {PAY_METHODS.map(m => (
+            <label key={m.id} className="flex items-start gap-3 p-4 cursor-pointer transition-all"
+              style={{ border: `1.5px solid ${method === m.id ? C.gold : "rgba(26,61,43,0.18)"}`, backgroundColor: method === m.id ? "rgba(201,168,76,0.06)" : "transparent" }}>
+              <input type="radio" name="payment" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="sr-only" />
+              <div className="flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5"
+                style={{ borderColor: method === m.id ? C.gold : "rgba(26,61,43,0.3)" }}>
+                {method === m.id && <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: C.gold }} />}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{m.icon}</span>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", fontWeight: 600, color: C.green }}>{m.label}</span>
+                </div>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 2 }}>{m.desc}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Card fields */}
+      {method === "card" && (
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-4 p-4"
+          style={{ backgroundColor: "rgba(201,168,76,0.05)", border: `1px solid rgba(201,168,76,0.2)` }}>
+          <Field label="Card Number" required>
+            <input style={inputStyle} value={cardNum} onChange={e => setCardNum(e.target.value.replace(/\D/g, "").slice(0, 16))} placeholder="1234 5678 9012 3456" />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Expiry" required>
+              <input style={inputStyle} value={cardExp} onChange={e => setCardExp(e.target.value)} placeholder="MM/YY" />
+            </Field>
+            <Field label="CVV" required>
+              <input style={inputStyle} value={cardCvv} onChange={e => setCardCvv(e.target.value.slice(0, 3))} placeholder="•••" type="password" />
+            </Field>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Coupon */}
+      {!coupon ? (
+        <div className="flex">
+          <input value={couponInput} onChange={e => setCouponInput(e.target.value.toUpperCase())} placeholder="Coupon code (ARWA10, WELCOME, BOTANIQ)"
+            onKeyDown={e => e.key === "Enter" && applyCoupon()}
+            className="flex-1 px-3 py-2.5 text-sm outline-none"
+            style={{ border: `1px solid rgba(26,61,43,0.2)`, borderRight: "none", color: C.green, fontFamily: "'DM Sans',sans-serif", backgroundColor: "transparent" }} />
+          <button onClick={applyCoupon} className="px-4 py-2.5 text-xs uppercase tracking-wider"
+            style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>Apply</button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-3 py-2" style={{ backgroundColor: "rgba(45,138,78,0.08)", border: `1px solid rgba(45,138,78,0.3)` }}>
+          <Tag size={13} color="#2d8a4e" />
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: "#2d8a4e", flex: 1 }}>{coupon} applied — {couponDisc}% off</span>
+          <button onClick={() => { setCoupon(""); setCouponDisc(0); }} className="text-xs" style={{ color: "#d4183d" }}>Remove</button>
+        </div>
+      )}
+
+      {/* Order total */}
+      <div className="p-4 space-y-2" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
+        <div className="flex justify-between"><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.muted }}>Subtotal</span><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.green }}>Rs. {cartTotal.toLocaleString()}</span></div>
+        {couponDisc > 0 && <div className="flex justify-between"><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#2d8a4e" }}>Discount ({couponDisc}%)</span><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#2d8a4e" }}>-Rs. {discAmt.toLocaleString()}</span></div>}
+        <div className="flex justify-between"><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.muted }}>Shipping</span><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.green }}>Rs. {SHIPPING}</span></div>
+        <div className="flex justify-between pt-2" style={{ borderTop: `1px solid rgba(201,168,76,0.2)` }}>
+          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "1rem", fontWeight: 700, color: C.green }}>Total</span>
+          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", fontWeight: 700, color: C.green }}>Rs. {grandTotal.toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* Terms */}
+      <label className="flex items-start gap-3 cursor-pointer">
+        <div className="w-4 h-4 border flex-shrink-0 mt-0.5 flex items-center justify-center"
+          style={{ borderColor: terms ? C.gold : "rgba(26,61,43,0.3)", backgroundColor: terms ? C.gold : "transparent" }}
+          onClick={() => setTerms(!terms)}>
+          {terms && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3.5"><polyline points="20 6 9 17 4 12" /></svg>}
+        </div>
+        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted, lineHeight: 1.6 }}>
+          I agree to the <span style={{ color: C.gold }}>Terms & Conditions</span> and <span style={{ color: C.gold }}>Privacy Policy</span>. I confirm my order details are correct.
+        </span>
+      </label>
+
+      <div className="flex gap-3">
+        <button onClick={onBack} className="px-5 py-3.5 text-sm border hover:bg-black/5 transition-colors"
+          style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+          ← Back
+        </button>
+        <button onClick={handlePlace} className="group flex-1 py-3.5 text-sm font-medium uppercase tracking-widest flex items-center justify-center gap-2"
+          style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+          Place Order <ChevronRight size={15} className="transition-transform group-hover:translate-x-1" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 3: Success ──────────────────────────────────────────────────────────
+function Success({ info, orderId }: { info: CustomerInfo; orderId: string }) {
+  const navigate = useNavigate();
+  return (
+    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8">
+      {/* Animated check */}
+      <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: "spring" }}
+        className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
+        style={{ backgroundColor: C.gold }}>
+        <Check size={36} color={C.green} strokeWidth={3} />
+      </motion.div>
+
+      <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "2rem", fontWeight: 700, color: C.green, marginBottom: 8 }}>Order Placed!</h2>
+      <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted, marginBottom: 20, lineHeight: 1.7 }}>
+        Thank you, <strong style={{ color: C.green }}>{info.fullName}</strong>!<br />
+        Your order has been placed successfully and will be processed shortly.
+      </p>
+
+      <div className="p-5 mb-8 mx-auto max-w-sm" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.25)` }}>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.3em", textTransform: "uppercase", color: C.muted }}>Order ID</p>
+        <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.4rem", fontWeight: 700, color: C.gold, marginTop: 4 }}>{orderId}</p>
+        <div style={{ height: 1, backgroundColor: "rgba(201,168,76,0.2)", margin: "12px 0" }} />
+        <div className="text-left space-y-1.5">
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.green }}><span style={{ color: C.muted }}>Delivering to:</span> {info.city}, {info.province}</p>
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.green }}><span style={{ color: C.muted }}>Phone:</span> {info.phone}</p>
+        </div>
+      </div>
+
+      {/* Delivery info cards */}
+      <div className="grid grid-cols-3 gap-4 mb-8 max-w-sm mx-auto">
+        {[
+          { Icon: Truck,    t: "2–4 Days",   s: "Estimated delivery" },
+          { Icon: Shield,   t: "Secure",     s: "Safe & encrypted" },
+          { Icon: RotateCcw, t: "2-Day",    s: "Return policy" },
+        ].map(({ Icon, t, s }) => (
+          <div key={t} className="text-center p-3" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
+            <Icon size={16} color={C.gold} style={{ margin: "0 auto 4px" }} />
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", fontWeight: 600, color: C.green }}>{t}</p>
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.65rem", color: C.muted }}>{s}</p>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.muted, marginBottom: 24 }}>
+        Questions? Contact us on WhatsApp: <a href="https://wa.me/923140628188" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }}>+92 314 0628188</a>
+      </p>
+
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <button onClick={() => navigate("/")} className="px-6 py-3 text-sm uppercase tracking-widest border hover:bg-black/5 transition-colors"
+          style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+          Back to Home
+        </button>
+        <button onClick={() => navigate("/shop")} className="group px-6 py-3 text-sm uppercase tracking-widest flex items-center gap-2"
+          style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>
+          Continue Shopping <ChevronRight size={14} className="transition-transform group-hover:translate-x-1" />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Checkout Page ────────────────────────────────────────────────────────────
+export default function Checkout() {
+  const navigate  = useNavigate();
+  const { cart, cartTotal, cartCount, clearCart } = useStore();
+
+  const [step, setStep]       = useState(0);
+  const [orderId, setOrderId] = useState("");
+  const [coupon,     setCoupon]     = useState("");
+  const [couponDisc, setCouponDisc] = useState(0);
+  const [payMethod, setPayMethod]   = useState<PayMethod>("cod");
+  const [info, setInfo]             = useState<CustomerInfo>({
+    fullName: "", phone: "", email: "", province: "", city: "", address: "", postal: "", notes: "",
+  });
+
+  if (cart.length === 0 && step < 2) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center pt-20 text-center px-4" style={{ backgroundColor: C.ivory }}>
+        <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.8rem", color: C.green, marginBottom: 12 }}>Your cart is empty</h2>
+        <button onClick={() => navigate("/shop")} className="px-6 py-3 text-sm uppercase tracking-widest"
+          style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>Shop Now</button>
+      </div>
+    );
+  }
+
+  const discAmt    = Math.round(cartTotal * (couponDisc / 100));
+  const grandTotal = cartTotal - discAmt + SHIPPING;
+
+  const handlePlaceOrder = () => {
+    const id = `ARW-${Date.now().toString().slice(-6)}`;
+    setOrderId(id);
+    clearCart();
+    setStep(2);
+    toast.success("Order placed successfully!");
+  };
+
+  return (
+    <div style={{ backgroundColor: C.ivory, minHeight: "100vh" }}>
+      {/* Banner */}
+      <div className="pt-20" style={{ backgroundColor: C.green }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <h1 style={{ fontFamily: "'Playfair Display',serif", fontSize: "clamp(1.8rem,4vw,2.5rem)", fontWeight: 700, color: C.ivory }}>Checkout</h1>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <StepIndicator step={step} />
+
+        <AnimatePresence mode="wait">
+          {step === 2 ? (
+            <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <Success info={info} orderId={orderId} />
+            </motion.div>
+          ) : (
+            <motion.div key={step} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+              className="grid lg:grid-cols-5 gap-8">
+              {/* Form area */}
+              <div className="lg:col-span-3">
+                <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.4rem", fontWeight: 700, color: C.green, marginBottom: 24 }}>
+                  {step === 0 ? "Your Information" : "Payment Details"}
+                </h2>
+
+                {step === 0 && (
+                  <Step1 info={info} setInfo={setInfo} onNext={() => setStep(1)} />
+                )}
+                {step === 1 && (
+                  <Step2
+                    method={payMethod} setMethod={setPayMethod}
+                    coupon={coupon} setCoupon={setCoupon}
+                    couponDisc={couponDisc} setCouponDisc={setCouponDisc}
+                    cartTotal={cartTotal}
+                    onBack={() => setStep(0)}
+                    onPlace={handlePlaceOrder}
+                  />
+                )}
+              </div>
+
+              {/* Order summary */}
+              <div className="lg:col-span-2">
+                <div className="sticky top-24 p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
+                  <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", fontWeight: 700, color: C.green, marginBottom: 16 }}>Order Summary</h3>
+                  <div className="space-y-3 mb-5">
+                    {cart.map(item => (
+                      <div key={item.product.id} className="flex items-center gap-3">
+                        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center text-center" style={{ backgroundColor: "#eee8da" }}>
+                          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.45rem", color: C.muted }}>Arwa Botaniqs</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.green, fontWeight: 600 }}>{item.product.name} {item.product.subtitle}</p>
+                          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>Qty: {item.qty} · {item.product.weight}</p>
+                        </div>
+                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.green, flexShrink: 0 }}>Rs. {(item.product.price * item.qty).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2 pt-4" style={{ borderTop: `1px solid rgba(201,168,76,0.18)` }}>
+                    <div className="flex justify-between"><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted }}>Subtotal</span><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.green }}>Rs. {cartTotal.toLocaleString()}</span></div>
+                    {couponDisc > 0 && <div className="flex justify-between"><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: "#2d8a4e" }}>Discount</span><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: "#2d8a4e" }}>-Rs. {discAmt.toLocaleString()}</span></div>}
+                    <div className="flex justify-between"><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted }}>Shipping</span><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.green }}>Rs. {SHIPPING}</span></div>
+                    <div className="flex justify-between pt-2" style={{ borderTop: `1px solid rgba(201,168,76,0.18)` }}>
+                      <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.95rem", fontWeight: 700, color: C.green }}>Total</span>
+                      <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", fontWeight: 700, color: C.green }}>Rs. {grandTotal.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Trust */}
+                  <div className="mt-5 pt-4 space-y-2" style={{ borderTop: `1px solid rgba(201,168,76,0.18)` }}>
+                    {[{ Icon: Shield, t: "Secure & encrypted payment" }, { Icon: Truck, t: "Delivery in 2–4 business days" }, { Icon: RotateCcw, t: "2-day hassle-free returns" }].map(({ Icon, t }) => (
+                      <div key={t} className="flex items-center gap-2"><Icon size={12} color={C.gold} /><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>{t}</span></div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}

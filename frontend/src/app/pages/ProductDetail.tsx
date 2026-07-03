@@ -1,0 +1,532 @@
+import { useState, useRef, useEffect } from "react";
+import { useParams, useNavigate } from "react-router";
+import { motion, AnimatePresence } from "motion/react";
+import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
+import productImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.47.16_PM.jpeg";
+import logoImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.46.54_PM.jpeg";
+import { toast } from "sonner";
+import { useStore } from "../store";
+import { PRODUCTS, REVIEWS, type Product } from "../data";
+import { C, FadeIn, StarRating, GoldLine, SectionTag, ProductCard } from "../shared";
+import {
+  ShoppingCart, Heart, Share2, Copy, ChevronDown, ChevronLeft, ChevronRight,
+  Truck, RotateCcw, Shield, Check, ZoomIn, X, Star, Plus, Minus,
+  MessageCircle, PlayCircle, RotateCcw as Rotate360,
+} from "lucide-react";
+
+const GALLERY_IMAGES = [
+  { src: productImg, alt: "Arwa Botaniqs Beauty Soap — product shot with botanical flowers" },
+  { src: logoImg,    alt: "Arwa Botaniqs brand identity — AB monogram on forest green" },
+];
+
+// ─── Image Gallery ────────────────────────────────────────────────────────────
+function ImageGallery() {
+  const [active, setActive]   = useState(0);
+  const [lightbox, setLightbox] = useState(false);
+
+  return (
+    <div>
+      {/* Main image */}
+      <div className="relative overflow-hidden group cursor-zoom-in" style={{ aspectRatio: "4/5", backgroundColor: "#eee8da" }}
+        onClick={() => setLightbox(true)}>
+        <ImageWithFallback src={GALLERY_IMAGES[active].src} alt={GALLERY_IMAGES[active].alt} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: "rgba(26,61,43,0.2)" }}>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(245,240,232,0.9)" }}>
+            <ZoomIn size={18} color={C.green} />
+          </div>
+        </div>
+        {/* Badge */}
+        <div className="absolute top-3 left-3 px-2 py-1 text-[11px] font-bold" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+          {PRODUCTS[0].discount}% OFF
+        </div>
+      </div>
+
+      {/* Thumbnails */}
+      <div className="flex gap-3 mt-3">
+        {GALLERY_IMAGES.map((img, i) => (
+          <button key={i} onClick={() => setActive(i)}
+            className="w-16 h-16 overflow-hidden flex-shrink-0 transition-all duration-200"
+            style={{ border: `2px solid ${active === i ? C.gold : "transparent"}`, opacity: active === i ? 1 : 0.65 }}>
+            <ImageWithFallback src={img.src} alt={img.alt} className="w-full h-full object-cover" />
+          </button>
+        ))}
+        {/* Video placeholder */}
+        <button className="w-16 h-16 flex-shrink-0 flex flex-col items-center justify-center gap-1 border"
+          style={{ borderColor: "rgba(26,61,43,0.2)", backgroundColor: C.cream }}
+          onClick={() => toast.info("Product video coming soon!")}>
+          <PlayCircle size={18} color={C.muted} />
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.6rem", color: C.muted }}>Video</span>
+        </button>
+        {/* 360 placeholder */}
+        <button className="w-16 h-16 flex-shrink-0 flex flex-col items-center justify-center gap-1 border"
+          style={{ borderColor: "rgba(26,61,43,0.2)", backgroundColor: C.cream }}
+          onClick={() => toast.info("360° view coming soon!")}>
+          <Rotate360 size={18} color={C.muted} />
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.6rem", color: C.muted }}>360°</span>
+        </button>
+      </div>
+
+      {/* Lightbox */}
+      <AnimatePresence>
+        {lightbox && (
+          <>
+            <motion.div key="lb-bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[90]" style={{ backgroundColor: "rgba(0,0,0,0.9)" }}
+              onClick={() => setLightbox(false)} />
+            <motion.div key="lb-img" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="fixed inset-4 z-[91] flex items-center justify-center">
+              <button onClick={() => setLightbox(false)} className="absolute top-2 right-2 p-2 z-10" aria-label="Close lightbox">
+                <X size={24} color="white" />
+              </button>
+              <button onClick={() => setActive(a => (a - 1 + GALLERY_IMAGES.length) % GALLERY_IMAGES.length)} className="absolute left-2 p-2">
+                <ChevronLeft size={28} color="white" />
+              </button>
+              <ImageWithFallback src={GALLERY_IMAGES[active].src} alt={GALLERY_IMAGES[active].alt} className="max-h-full max-w-full object-contain" />
+              <button onClick={() => setActive(a => (a + 1) % GALLERY_IMAGES.length)} className="absolute right-2 p-2">
+                <ChevronRight size={28} color="white" />
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Share Dropdown ───────────────────────────────────────────────────────────
+function ShareDropdown() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-3 py-2 border text-xs hover:border-[#c9a84c] transition-colors"
+        style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+        <Share2 size={13} /> Share
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-20 w-44 py-1 shadow-lg"
+          style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
+          <button onClick={() => { navigator.clipboard.writeText(window.location.href); toast.success("Link copied!"); setOpen(false); }}
+            className="w-full text-left px-4 py-2.5 flex items-center gap-2 text-sm hover:bg-[rgba(201,168,76,0.08)] transition-colors"
+            style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>
+            <Copy size={13} /> Copy Link
+          </button>
+          <a href={`https://wa.me/?text=${encodeURIComponent(window.location.href)}`} target="_blank" rel="noopener noreferrer"
+            className="w-full text-left px-4 py-2.5 flex items-center gap-2 text-sm hover:bg-[rgba(201,168,76,0.08)] transition-colors"
+            style={{ fontFamily: "'DM Sans',sans-serif", color: C.green, display: "flex" }}>
+            <MessageCircle size={13} /> WhatsApp
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Product Tabs ─────────────────────────────────────────────────────────────
+function ProductTabs({ product }: { product: Product }) {
+  const [tab, setTab] = useState("description");
+  const TABS = ["description", "ingredients", "how-to-use", "warnings", "shipping"];
+
+  return (
+    <div>
+      {/* Tab headers */}
+      <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "rgba(201,168,76,0.2)" }}>
+        {TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className="flex-shrink-0 px-4 py-3 text-xs uppercase tracking-widest border-b-2 transition-all"
+            style={{ borderColor: tab === t ? C.gold : "transparent", color: tab === t ? C.gold : C.muted, fontFamily: "'DM Sans',sans-serif", marginBottom: -1 }}>
+            {t.replace("-", " ")}
+          </button>
+        ))}
+      </div>
+
+      <div className="py-6">
+        {tab === "description" && (
+          <p style={{ fontFamily: "'DM Sans',sans-serif", color: "#4a5a4a", lineHeight: 1.88, fontSize: "0.92rem" }}>{product.description}</p>
+        )}
+        {tab === "ingredients" && (
+          <div className="grid sm:grid-cols-2 gap-4">
+            {product.ingredients.map(({ name, emoji, desc }) => (
+              <div key={name} className="flex items-start gap-3 p-3" style={{ backgroundColor: "rgba(201,168,76,0.05)", border: `1px solid rgba(201,168,76,0.15)` }}>
+                <span className="text-2xl">{emoji}</span>
+                <div>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", fontWeight: 600, color: C.green }}>{name}</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, lineHeight: 1.6, marginTop: 2 }}>{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab === "how-to-use" && (
+          <ol className="space-y-3">
+            {product.howToUse.map((step, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-xs font-bold" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>{i + 1}</span>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", color: "#4a5a4a", lineHeight: 1.7 }}>{step}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+        {tab === "warnings" && (
+          <ul className="space-y-2">
+            {product.warnings.map((w, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span style={{ color: "#d4183d", marginTop: 2, flexShrink: 0 }}>⚠</span>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", color: "#4a5a4a", lineHeight: 1.7 }}>{w}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {tab === "shipping" && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4" style={{ backgroundColor: "rgba(201,168,76,0.06)", border: `1px solid rgba(201,168,76,0.15)` }}>
+              <Truck size={18} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", fontWeight: 600, color: C.green }}>Delivery</p>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#4a5a4a", lineHeight: 1.7 }}>{product.shippingInfo}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-4" style={{ backgroundColor: "rgba(201,168,76,0.06)", border: `1px solid rgba(201,168,76,0.15)` }}>
+              <RotateCcw size={18} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", fontWeight: 600, color: C.green }}>Returns</p>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#4a5a4a", lineHeight: 1.7 }}>{product.returnPolicy}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Review Section ───────────────────────────────────────────────────────────
+function ReviewSection({ productId }: { productId: string }) {
+  const reviews = REVIEWS.filter(r => r.productId === productId);
+  const [newRating, setNewRating]   = useState(5);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [name, setName]             = useState("");
+  const [text, setText]             = useState("");
+  const [submitted, setSubmitted]   = useState(false);
+  const [showForm, setShowForm]     = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitted(true);
+    setShowForm(false);
+    toast.success("Thank you for your review!");
+  };
+
+  return (
+    <div>
+      {/* Rating summary */}
+      <div className="flex flex-wrap gap-8 mb-8 pb-8" style={{ borderBottom: `1px solid rgba(201,168,76,0.2)` }}>
+        <div className="text-center">
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "4rem", fontWeight: 700, color: C.green, lineHeight: 1 }}>{PRODUCTS[0].rating}</div>
+          <StarRating rating={PRODUCTS[0].rating} size={18} />
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 4 }}>{PRODUCTS[0].reviewCount} reviews</p>
+        </div>
+        <div className="flex-1 min-w-40">
+          {[5, 4, 3, 2, 1].map(n => (
+            <div key={n} className="flex items-center gap-2 mb-1.5">
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, width: 8 }}>{n}</span>
+              <Star size={12} fill={C.gold} color={C.gold} />
+              <div className="flex-1 h-1.5 overflow-hidden" style={{ backgroundColor: "rgba(201,168,76,0.15)" }}>
+                <div style={{ width: n === 5 ? "90%" : n === 4 ? "8%" : "2%", height: "100%", backgroundColor: C.gold }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Reviews */}
+      <div className="space-y-5 mb-8">
+        {reviews.map(r => (
+          <div key={r.id} className="p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: C.green, color: C.gold, fontFamily: "'Playfair Display',serif", fontWeight: 700 }}>{r.name[0]}</div>
+                <div>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.86rem", fontWeight: 600, color: C.green }}>{r.name} {r.verified && <span style={{ color: C.gold, fontSize: "0.72rem" }}>✓ Verified</span>}</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>{r.city} · {r.date}</p>
+                </div>
+              </div>
+              <StarRating rating={r.rating} size={12} />
+            </div>
+            <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.92rem", color: C.green, marginBottom: 4 }}>{r.title}</p>
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#4a5a4a", lineHeight: 1.75, fontStyle: "italic" }}>"{r.text}"</p>
+          </div>
+        ))}
+
+        {submitted && (
+          <div className="p-5 text-center" style={{ backgroundColor: "rgba(201,168,76,0.08)", border: `1px solid rgba(201,168,76,0.25)` }}>
+            <Check size={20} color={C.gold} style={{ margin: "0 auto 8px" }} />
+            <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>Your review has been submitted. Thank you!</p>
+          </div>
+        )}
+      </div>
+
+      {/* Write review */}
+      {!submitted && (
+        <div>
+          {!showForm ? (
+            <button onClick={() => setShowForm(true)} className="px-6 py-3 text-sm uppercase tracking-widest border hover:border-[#c9a84c] transition-colors"
+              style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+              Write a Review
+            </button>
+          ) : (
+            <form onSubmit={handleSubmit} className="p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
+              <h4 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", color: C.green, marginBottom: 16 }}>Write a Review</h4>
+              {/* Star selector */}
+              <div className="flex gap-1 mb-4">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button key={n} type="button" onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setNewRating(n)}>
+                    <Star size={24} fill={(hoverRating || newRating) >= n ? C.gold : "none"} color={C.gold} />
+                  </button>
+                ))}
+              </div>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required
+                className="w-full px-4 py-2.5 mb-3 text-sm outline-none"
+                style={{ border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent", color: C.green, fontFamily: "'DM Sans',sans-serif" }} />
+              <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Share your experience with this product..." required rows={4}
+                className="w-full px-4 py-2.5 mb-4 text-sm outline-none resize-none"
+                style={{ border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent", color: C.green, fontFamily: "'DM Sans',sans-serif" }} />
+              <div className="flex gap-3">
+                <button type="submit" className="px-6 py-2.5 text-sm uppercase tracking-widest"
+                  style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>Submit Review</button>
+                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2.5 text-sm border"
+                  style={{ borderColor: "rgba(26,61,43,0.2)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sticky Buy Bar ───────────────────────────────────────────────────────────
+function StickyBar({ product, visible, onAddToCart }: { product: Product; visible: boolean; onAddToCart: () => void }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div initial={{ y: -80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -80, opacity: 0 }}
+          className="fixed top-0 left-0 right-0 z-[55] px-4 py-3"
+          style={{ backgroundColor: C.green, boxShadow: "0 2px 20px rgba(0,0,0,0.15)" }}>
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <div>
+              <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "1rem", fontWeight: 600, color: C.ivory }}>{product.name} {product.subtitle}</span>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.gold, marginLeft: 12 }}>Rs. {product.price}</span>
+            </div>
+            <button onClick={onAddToCart} className="flex items-center gap-2 px-5 py-2 text-sm uppercase tracking-widest font-medium"
+              style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+              <ShoppingCart size={15} /> Add to Cart
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ─── Product Detail Page ──────────────────────────────────────────────────────
+export default function ProductDetail() {
+  const { slug } = useParams<{ slug: string }>();
+  const navigate  = useNavigate();
+  const { addToCart, toggleWishlist, wishlist } = useStore();
+
+  const product = PRODUCTS.find(p => p.slug === slug) || PRODUCTS[0];
+  const related = PRODUCTS.filter(p => p.id !== product.id);
+  const inWishlist = wishlist.has(product.id);
+
+  const [qty, setQty]             = useState(1);
+  const [stickyVisible, setStickyVisible] = useState(false);
+  const ctaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const obs = new IntersectionObserver(([entry]) => setStickyVisible(!entry.isIntersecting), { threshold: 0 });
+    if (ctaRef.current) obs.observe(ctaRef.current);
+    return () => obs.disconnect();
+  }, []);
+
+  const handleAddToCart = () => addToCart(product, qty);
+
+  return (
+    <div style={{ backgroundColor: C.ivory, minHeight: "100vh" }}>
+      <StickyBar product={product} visible={stickyVisible} onAddToCart={handleAddToCart} />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-20">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 mb-8">
+          {[["Home", "/"], ["Shop", "/shop"], [`${product.name} ${product.subtitle}`, null]].map(([label, href], i) => (
+            <span key={i} className="flex items-center gap-2">
+              {i > 0 && <span style={{ color: "rgba(26,61,43,0.3)" }}>/</span>}
+              {href ? (
+                <button onClick={() => navigate(href)} className="hover:text-[#c9a84c] transition-colors"
+                  style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted }}>{label}</button>
+              ) : (
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.green }}>{label}</span>
+              )}
+            </span>
+          ))}
+        </div>
+
+        {/* Main layout */}
+        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 mb-16">
+          {/* Gallery */}
+          <FadeIn>
+            <ImageGallery />
+          </FadeIn>
+
+          {/* Info */}
+          <FadeIn delay={0.12}>
+            <div>
+              {/* Badges */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {product.isBestSeller && <span className="px-2.5 py-1 text-[11px] uppercase tracking-wider" style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>Best Seller</span>}
+                {product.isFeatured  && <span className="px-2.5 py-1 text-[11px] uppercase tracking-wider" style={{ backgroundColor: "rgba(201,168,76,0.15)", color: C.gold, fontFamily: "'DM Sans',sans-serif" }}>Featured</span>}
+                <span className="px-2.5 py-1 text-[11px] uppercase tracking-wider" style={{ color: product.stock > 0 ? "#2d8a4e" : "#d4183d", backgroundColor: product.stock > 0 ? "rgba(45,138,78,0.1)" : "rgba(212,24,61,0.1)", fontFamily: "'DM Sans',sans-serif" }}>
+                  {product.stock > 0 ? `In Stock (${product.stock})` : "Out of Stock"}
+                </span>
+              </div>
+
+              <h1 style={{ fontFamily: "'Playfair Display',serif", fontSize: "clamp(2rem,4vw,2.8rem)", fontWeight: 700, color: C.green, lineHeight: 1.15 }}>
+                {product.name}<br /><span style={{ fontStyle: "italic", color: C.olive }}>{product.subtitle}</span>
+              </h1>
+              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.muted, marginTop: 6, letterSpacing: "0.06em" }}>
+                {product.tagline} · {product.weight}
+              </p>
+
+              {/* Rating */}
+              <div className="flex items-center gap-2 mt-3 mb-5">
+                <StarRating rating={product.rating} />
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted }}>({product.reviewCount} reviews)</span>
+              </div>
+
+              {/* Price */}
+              <div className="flex items-baseline gap-4 mb-6 pb-6" style={{ borderBottom: `1px solid rgba(26,61,43,0.1)` }}>
+                <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "2.6rem", fontWeight: 700, color: C.green }}>Rs. {product.price.toLocaleString()}</span>
+                <span className="line-through" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "1.2rem", color: "#aabba9" }}>Rs. {product.oldPrice.toLocaleString()}</span>
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", fontWeight: 600, backgroundColor: C.gold, color: C.green, padding: "3px 10px" }}>
+                  {product.discount}% OFF
+                </span>
+              </div>
+
+              {/* Short description */}
+              <p style={{ fontFamily: "'DM Sans',sans-serif", color: "#4a5a4a", lineHeight: 1.82, fontSize: "0.92rem", marginBottom: 20 }}>
+                {product.description.slice(0, 180)}...
+              </p>
+
+              {/* Benefits chips */}
+              <div className="flex flex-wrap gap-2 mb-6">
+                {product.benefits.map(b => (
+                  <span key={b} className="px-3 py-1 text-xs" style={{ backgroundColor: "rgba(201,168,76,0.1)", color: C.olive, fontFamily: "'DM Sans',sans-serif", border: `1px solid rgba(201,168,76,0.2)` }}>{b}</span>
+                ))}
+              </div>
+
+              {/* Skin types */}
+              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted, marginBottom: 16 }}>
+                <span style={{ color: C.green, fontWeight: 600 }}>Suitable for: </span>{product.skinTypes.join(", ")} skin types
+              </p>
+
+              {/* Quantity */}
+              <div className="flex items-center gap-4 mb-5">
+                <div className="flex items-center border" style={{ borderColor: "rgba(26,61,43,0.3)" }}>
+                  <button onClick={() => setQty(q => Math.max(1, q - 1))} className="w-10 h-10 flex items-center justify-center hover:bg-black/5 transition-colors text-xl" style={{ color: C.green }}>−</button>
+                  <span className="w-10 text-center" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", color: C.green, fontWeight: 600 }}>{qty}</span>
+                  <button onClick={() => setQty(q => q + 1)} className="w-10 h-10 flex items-center justify-center hover:bg-black/5 transition-colors text-xl" style={{ color: C.green }}>+</button>
+                </div>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted }}>Total: <strong style={{ color: C.green }}>Rs. {(product.price * qty).toLocaleString()}</strong></p>
+              </div>
+
+              {/* CTA row */}
+              <div ref={ctaRef} className="flex flex-col sm:flex-row gap-3 mb-5">
+                <button onClick={() => { addToCart(product, qty); navigate("/checkout"); }}
+                  className="group flex-1 py-4 text-sm font-medium relative overflow-hidden"
+                  style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.16em", textTransform: "uppercase" }}>
+                  <span className="relative z-10">Buy Now</span>
+                  <span className="absolute inset-0 translate-x-full group-hover:translate-x-0 transition-transform duration-300" style={{ backgroundColor: C.gold }} />
+                  <span className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ color: C.green }}>Buy Now</span>
+                </button>
+                <button onClick={handleAddToCart} className="flex-1 py-4 text-sm font-medium border flex items-center justify-center gap-2 hover:bg-[rgba(26,61,43,0.05)] transition-colors"
+                  style={{ borderColor: C.green, color: C.green, fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.16em", textTransform: "uppercase" }}>
+                  <ShoppingCart size={15} /> Add to Cart
+                </button>
+              </div>
+
+              {/* Wishlist + Share */}
+              <div className="flex items-center gap-3 mb-6">
+                <button onClick={() => toggleWishlist(product)} className="flex items-center gap-1.5 px-3 py-2 border text-xs hover:border-[#c9a84c] transition-colors"
+                  style={{ borderColor: "rgba(26,61,43,0.25)", color: inWishlist ? C.gold : C.green, fontFamily: "'DM Sans',sans-serif" }}>
+                  <Heart size={13} fill={inWishlist ? C.gold : "none"} color={inWishlist ? C.gold : C.green} />
+                  {inWishlist ? "In Wishlist" : "Add to Wishlist"}
+                </button>
+                <ShareDropdown />
+              </div>
+
+              {/* Trust badges */}
+              <div className="grid grid-cols-3 gap-3 pt-5" style={{ borderTop: `1px solid rgba(26,61,43,0.1)` }}>
+                {[
+                  { Icon: Truck,    label: "2–4 Day Delivery", sub: "Rs. 300 flat rate" },
+                  { Icon: RotateCcw, label: "2-Day Returns",   sub: "Hassle free" },
+                  { Icon: Shield,   label: "Secure Payment",   sub: "100% encrypted" },
+                ].map(({ Icon, label, sub }) => (
+                  <div key={label} className="text-center">
+                    <Icon size={18} color={C.gold} style={{ margin: "0 auto 6px" }} />
+                    <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", fontWeight: 600, color: C.green }}>{label}</p>
+                    <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.66rem", color: C.muted }}>{sub}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        </div>
+
+        {/* Tabs section */}
+        <FadeIn>
+          <div className="mb-16">
+            <ProductTabs product={product} />
+          </div>
+        </FadeIn>
+
+        {/* Reviews */}
+        <FadeIn>
+          <div className="mb-16">
+            <div className="flex items-center gap-3 mb-8">
+              <GoldLine />
+              <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.6rem", fontWeight: 700, color: C.green }}>Customer Reviews</h2>
+            </div>
+            <ReviewSection productId={product.id} />
+          </div>
+        </FadeIn>
+
+        {/* Related Products */}
+        <FadeIn>
+          <div>
+            <div className="flex items-center gap-3 mb-8">
+              <GoldLine />
+              <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.6rem", fontWeight: 700, color: C.green }}>You May Also Like</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {PRODUCTS.map(p => (
+                <ProductCard key={p.id} product={p}
+                  onView={() => navigate(`/products/${p.slug}`)}
+                  onAddToCart={() => addToCart(p)}
+                  onQuickView={() => {}}
+                  onToggleWishlist={() => toggleWishlist(p)}
+                  inWishlist={wishlist.has(p.id)} />
+              ))}
+              {/* Coming soon placeholders */}
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center justify-center py-16 text-center" style={{ backgroundColor: C.cream, border: `1px dashed rgba(201,168,76,0.3)` }}>
+                  <span className="text-2xl mb-2">🌿</span>
+                  <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.9rem", color: C.green }}>Coming Soon</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted, marginTop: 4 }}>New arrivals soon</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </FadeIn>
+      </div>
+    </div>
+  );
+}
