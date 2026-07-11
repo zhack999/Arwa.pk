@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { motion, useInView } from "motion/react";
+import { ImageWithFallback } from "./components/figma/ImageWithFallback";
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 export const C = {
@@ -213,9 +214,13 @@ export function ProductCard({
         style={{ aspectRatio: isGrid ? "3/4" : "1/1" }}
         onClick={onView}
       >
-        <div className="w-full h-full bg-gray-100 flex items-center justify-center" style={{ backgroundColor: "#eee8da" }}>
-          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.8rem", color: C.muted }}>Arwa Botaniqs</span>
-        </div>
+        {product.imageUrl ? (
+          <ImageWithFallback src={product.imageUrl} alt={`${product.name} ${product.subtitle}`} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gray-100 flex items-center justify-center" style={{ backgroundColor: "#eee8da" }}>
+            <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.8rem", color: C.muted }}>Arwa Botaniqs</span>
+          </div>
+        )}
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">
           {product.discount > 0 && (

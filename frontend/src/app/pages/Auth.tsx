@@ -150,7 +150,7 @@ export default function AuthLayout() {
 // ─── Login ────────────────────────────────────────────────────────────────────
 export function Login() {
   const navigate = useNavigate();
-  const { login } = useStore();
+  const { customerLogin } = useStore();
   const [email,    setEmail]    = useState("");
   const [pass,     setPass]     = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -158,15 +158,19 @@ export function Login() {
   const [err,      setErr]      = useState("");
   const [loading,  setLoading]  = useState(false);
 
-  const handle = (e: React.FormEvent) => {
+  const handle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !pass) { setErr("Please fill all fields."); return; }
+    setErr("");
     setLoading(true);
-    setTimeout(() => {
-      login({ id: "u1", name: "Ayesha Khan", email, phone: "+92 314 0628188", points: 250, joinDate: "January 2026" });
+    try {
+      await customerLogin(email, pass);
       navigate("/dashboard");
+    } catch (error: any) {
+      setErr(error.message || "Invalid email or password.");
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -213,11 +217,10 @@ export function Login() {
     </div>
   );
 }
-
 // ─── Register ─────────────────────────────────────────────────────────────────
 export function Register() {
   const navigate = useNavigate();
-  const { login } = useStore();
+  const { customerRegister } = useStore();
   const [name,    setName]    = useState("");
   const [email,   setEmail]   = useState("");
   const [phone,   setPhone]   = useState("");
@@ -229,17 +232,20 @@ export function Register() {
 
   const strength = pwStrength(pass);
 
-  const handle = (e: React.FormEvent) => {
+  const handle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (pass !== conf) { toast.error("Passwords do not match"); return; }
     if (!terms) { toast.error("Please accept the terms"); return; }
     if (strength.pct < 50) { toast.error("Password too weak"); return; }
     setLoading(true);
-    setTimeout(() => {
-      login({ id: "u2", name, email, phone, points: 100, joinDate: "July 2026" });
-      navigate("/auth/verify-email");
+    try {
+      await customerRegister(name, email, phone, pass);
+      navigate("/dashboard"); // real email verification isn't built yet, so we skip straight in
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create account.");
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -264,7 +270,6 @@ export function Register() {
           </button>
         </Field>
 
-        {/* Password strength meter */}
         {pass && (
           <div>
             <div className="flex gap-1 mb-1">

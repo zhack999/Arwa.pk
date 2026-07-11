@@ -8,6 +8,8 @@ const Shop          = lazy(() => import("./pages/Shop"));
 const ProductDetail = lazy(() => import("./pages/ProductDetail"));
 const Cart          = lazy(() => import("./pages/Cart"));
 const Checkout      = lazy(() => import("./pages/Checkout"));
+const OrderSuccess  = lazy(() => import("./pages/OrderSuccess"));
+const OrderCancel   = lazy(() => import("./pages/OrderCancel"));
 const OrderTracking = lazy(() => import("./pages/OrderTracking"));
 const AIAssistant   = lazy(() => import("./pages/AIAssistant"));
 const SkinQuiz      = lazy(() => import("./pages/SkinQuiz"));
@@ -42,6 +44,7 @@ const AdminLogin         = lazy(() => import("./pages/AdminLogin"));
 const AdminLayout        = lazy(() => import("./pages/Admin").then(m => ({ default: m.default })));
 const AdminDashboard     = lazy(() => import("./pages/Admin").then(m => ({ default: m.AdminDashboard })));
 const AdminProducts      = lazy(() => import("./pages/Admin").then(m => ({ default: m.AdminProducts })));
+const AdminCategories    = lazy(() => import("./pages/Admin").then(m => ({ default: m.AdminCategories })));
 const AdminOrders        = lazy(() => import("./pages/Admin").then(m => ({ default: m.AdminOrders })));
 const AdminCustomers     = lazy(() => import("./pages/Admin").then(m => ({ default: m.AdminCustomers })));
 const AdminMarketing     = lazy(() => import("./pages/Admin").then(m => ({ default: m.AdminMarketing })));
@@ -78,6 +81,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true,             Component: AdminDashboard },
       { path: "products",        Component: AdminProducts },
+      { path: "categories",      Component: AdminCategories },
       { path: "orders",          Component: AdminOrders },
       { path: "customers",       Component: AdminCustomers },
       { path: "marketing",       Component: AdminMarketing },
@@ -99,6 +103,8 @@ export const router = createBrowserRouter([
       { path: "products/:slug", Component: ProductDetail },
       { path: "cart",           Component: Cart },
       { path: "checkout",       Component: Checkout },
+      { path: "order-success",  Component: OrderSuccess },
+      { path: "order-cancel",   Component: OrderCancel },
       { path: "track/:orderId", Component: OrderTracking },
       { path: "ai",             Component: AIAssistant },
       { path: "quiz",           Component: SkinQuiz },

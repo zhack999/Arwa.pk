@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore } from "../store";
-import { PRODUCTS } from "../data";
 import { C, LeafSVG, BrandLogo } from "../shared";
+import type { Product } from "../data";
 import { ChevronLeft, ChevronRight, Check, ShoppingCart, RotateCcw, Sparkles } from "lucide-react";
 
 // ─── Quiz data ────────────────────────────────────────────────────────────────
@@ -70,9 +70,8 @@ const QUESTIONS = [
 ];
 
 // ─── Generate results ─────────────────────────────────────────────────────────
-function getResults(answers: Record<string, string>) {
+function getResults(answers: Record<string, string>, product: Product) {
   const { concern, sensitivity } = answers;
-  const product = PRODUCTS[0];
 
   let headline = "Arwa Botaniqs Beauty Soap — Your Perfect Match! 🌿";
   let explanation = "";
@@ -123,9 +122,19 @@ function OptionCard({ option, selected, onSelect }: { option: typeof QUESTIONS[0
 
 // ─── Results page ─────────────────────────────────────────────────────────────
 function Results({ answers, onRetake }: { answers: Record<string, string>; onRetake: () => void }) {
-  const { addToCart } = useStore();
+  const { addToCart, products } = useStore();
   const navigate      = useNavigate();
-  const { product, headline, explanation, benefits, matchScore } = getResults(answers);
+  const recommended = products.find(p => p.isFeatured) || products.find(p => p.isBestSeller) || products[0];
+
+  if (!recommended) {
+    return (
+      <div className="text-center py-16">
+        <p style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.6)" }}>No products available right now — check back soon!</p>
+      </div>
+    );
+  }
+
+  const { product, headline, explanation, benefits, matchScore } = getResults(answers, recommended);
 
   return (
     <motion.div key="results" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>

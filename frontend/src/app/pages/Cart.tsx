@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { useStore } from "../store";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { C, FadeIn, StarRating, GoldLine } from "../shared";
 import { Trash2, Plus, Minus, ShoppingCart, Tag, Truck, RotateCcw, ArrowRight, ChevronRight } from "lucide-react";
 
@@ -91,9 +92,13 @@ export default function Cart() {
                   <div className="grid sm:grid-cols-12 items-center gap-4 py-5" style={{ borderBottom: `1px solid rgba(201,168,76,0.15)` }}>
                     {/* Image + name */}
                     <div className="sm:col-span-5 flex items-center gap-4">
-                      <div className="w-20 h-20 flex-shrink-0 flex items-center justify-center cursor-pointer" style={{ backgroundColor: "#eee8da" }}
+                      <div className="w-20 h-20 flex-shrink-0 flex items-center justify-center cursor-pointer overflow-hidden" style={{ backgroundColor: "#eee8da" }}
                         onClick={() => navigate(`/products/${item.product.slug}`)}>
-                        <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.55rem", color: C.muted, textAlign: "center" }}>Arwa Botaniqs</span>
+                        {item.product.imageUrl ? (
+                          <ImageWithFallback src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.55rem", color: C.muted, textAlign: "center" }}>Arwa Botaniqs</span>
+                        )}
                       </div>
                       <div>
                         <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.95rem", fontWeight: 600, color: C.green, cursor: "pointer" }}

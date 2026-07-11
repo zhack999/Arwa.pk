@@ -1,3 +1,4 @@
+import { fetchProductReviews, submitReview, deleteReview } from "../api/reviews";
 import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
@@ -6,7 +7,7 @@ import productImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.47.16_PM.jpeg"
 import logoImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.46.54_PM.jpeg";
 import { toast } from "sonner";
 import { useStore } from "../store";
-import { PRODUCTS, REVIEWS, type Product } from "../data";
+import { type Product } from "../data";
 import { C, FadeIn, StarRating, GoldLine, SectionTag, ProductCard } from "../shared";
 import {
   ShoppingCart, Heart, Share2, Copy, ChevronDown, ChevronLeft, ChevronRight,
@@ -14,15 +15,20 @@ import {
   MessageCircle, PlayCircle, RotateCcw as Rotate360,
 } from "lucide-react";
 
-const GALLERY_IMAGES = [
+const FALLBACK_GALLERY_IMAGES = [
   { src: productImg, alt: "Arwa Botaniqs Beauty Soap — product shot with botanical flowers" },
   { src: logoImg,    alt: "Arwa Botaniqs brand identity — AB monogram on forest green" },
 ];
 
 // ─── Image Gallery ────────────────────────────────────────────────────────────
-function ImageGallery() {
+function ImageGallery({ product }: { product: Product }) {
   const [active, setActive]   = useState(0);
   const [lightbox, setLightbox] = useState(false);
+
+  // Real product photo first, then the brand shots as supporting images.
+  const GALLERY_IMAGES = product.imageUrl
+    ? [{ src: product.imageUrl, alt: `${product.name} ${product.subtitle}` }, ...FALLBACK_GALLERY_IMAGES]
+    : FALLBACK_GALLERY_IMAGES;
 
   return (
     <div>
@@ -36,9 +42,11 @@ function ImageGallery() {
           </div>
         </div>
         {/* Badge */}
-        <div className="absolute top-3 left-3 px-2 py-1 text-[11px] font-bold" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
-          {PRODUCTS[0].discount}% OFF
-        </div>
+        {product.discount > 0 && (
+          <div className="absolute top-3 left-3 px-2 py-1 text-[11px] font-bold" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+            {product.discount}% OFF
+          </div>
+        )}
       </div>
 
       {/* Thumbnails */}
@@ -143,7 +151,10 @@ function ProductTabs({ product }: { product: Product }) {
         {tab === "description" && (
           <p style={{ fontFamily: "'DM Sans',sans-serif", color: "#4a5a4a", lineHeight: 1.88, fontSize: "0.92rem" }}>{product.description}</p>
         )}
-        {tab === "ingredients" && (
+        {tab === "ingredients" && product.ingredients.length === 0 && (
+          <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted, fontSize: "0.88rem" }}>Ingredient details for this product haven't been added yet.</p>
+        )}
+        {tab === "ingredients" && product.ingredients.length > 0 && (
           <div className="grid sm:grid-cols-2 gap-4">
             {product.ingredients.map(({ name, emoji, desc }) => (
               <div key={name} className="flex items-start gap-3 p-3" style={{ backgroundColor: "rgba(201,168,76,0.05)", border: `1px solid rgba(201,168,76,0.15)` }}>
@@ -200,45 +211,83 @@ function ProductTabs({ product }: { product: Product }) {
 }
 
 // ─── Review Section ───────────────────────────────────────────────────────────
-function ReviewSection({ productId }: { productId: string }) {
-  const reviews = REVIEWS.filter(r => r.productId === productId);
+function ReviewSection({ product }: { product: Product }) {
+  const { user } = useStore();
+  const [reviews, setReviews]   = useState<import("../api/reviews").Review[]>([]);
+  const [summary, setSummary]   = useState<{ avg: number; count: number; breakdown: Record<number, number> } | null>(null);
+  const [loading, setLoading]   = useState(true);
   const [newRating, setNewRating]   = useState(5);
   const [hoverRating, setHoverRating] = useState(0);
-  const [name, setName]             = useState("");
+  const [title, setTitle]           = useState("");
   const [text, setText]             = useState("");
-  const [submitted, setSubmitted]   = useState(false);
   const [showForm, setShowForm]     = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitted(true);
-    setShowForm(false);
-    toast.success("Thank you for your review!");
+  const load = () => {
+    setLoading(true);
+    fetchProductReviews(product.id)
+      .then(({ reviews, summary }) => { setReviews(reviews); setSummary(summary); })
+      .catch(() => toast.error("Couldn't load reviews."))
+      .finally(() => setLoading(false));
   };
+
+  useEffect(() => { load(); }, [product.id]);
+
+  const alreadyReviewed = reviews.some(r => r.isMine);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) { toast.error("Please log in to write a review."); return; }
+    setSubmitting(true);
+    try {
+      await submitReview(product.id, newRating, title, text);
+      toast.success("Thank you for your review!");
+      setShowForm(false); setTitle(""); setText(""); setNewRating(5);
+      load();
+    } catch (err: any) {
+      toast.error(err.message || "Couldn't submit review.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try { await deleteReview(id); toast.info("Review removed."); load(); }
+    catch (err: any) { toast.error(err.message || "Couldn't remove review."); }
+  };
+
+  const hasRatings = !!summary && summary.count > 0;
 
   return (
     <div>
-      {/* Rating summary */}
-      <div className="flex flex-wrap gap-8 mb-8 pb-8" style={{ borderBottom: `1px solid rgba(201,168,76,0.2)` }}>
-        <div className="text-center">
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "4rem", fontWeight: 700, color: C.green, lineHeight: 1 }}>{PRODUCTS[0].rating}</div>
-          <StarRating rating={PRODUCTS[0].rating} size={18} />
-          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 4 }}>{PRODUCTS[0].reviewCount} reviews</p>
+      {loading ? (
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", color: C.muted, marginBottom: 24 }}>Loading reviews...</p>
+      ) : hasRatings ? (
+        <div className="flex flex-wrap gap-8 mb-8 pb-8" style={{ borderBottom: `1px solid rgba(201,168,76,0.2)` }}>
+          <div className="text-center">
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "4rem", fontWeight: 700, color: C.green, lineHeight: 1 }}>{summary!.avg}</div>
+            <StarRating rating={summary!.avg} size={18} />
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 4 }}>{summary!.count} reviews</p>
+          </div>
+          <div className="flex-1 min-w-40">
+            {[5, 4, 3, 2, 1].map(n => {
+              const pct = summary!.count > 0 ? Math.round((summary!.breakdown[n] / summary!.count) * 100) : 0;
+              return (
+                <div key={n} className="flex items-center gap-2 mb-1.5">
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, width: 8 }}>{n}</span>
+                  <Star size={12} fill={C.gold} color={C.gold} />
+                  <div className="flex-1 h-1.5 overflow-hidden" style={{ backgroundColor: "rgba(201,168,76,0.15)" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", backgroundColor: C.gold }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="flex-1 min-w-40">
-          {[5, 4, 3, 2, 1].map(n => (
-            <div key={n} className="flex items-center gap-2 mb-1.5">
-              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, width: 8 }}>{n}</span>
-              <Star size={12} fill={C.gold} color={C.gold} />
-              <div className="flex-1 h-1.5 overflow-hidden" style={{ backgroundColor: "rgba(201,168,76,0.15)" }}>
-                <div style={{ width: n === 5 ? "90%" : n === 4 ? "8%" : "2%", height: "100%", backgroundColor: C.gold }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      ) : (
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", color: C.muted, marginBottom: 24 }}>No reviews yet — be the first to share your experience.</p>
+      )}
 
-      {/* Reviews */}
       <div className="space-y-5 mb-8">
         {reviews.map(r => (
           <div key={r.id} className="p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
@@ -247,36 +296,31 @@ function ReviewSection({ productId }: { productId: string }) {
                 <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: C.green, color: C.gold, fontFamily: "'Playfair Display',serif", fontWeight: 700 }}>{r.name[0]}</div>
                 <div>
                   <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.86rem", fontWeight: 600, color: C.green }}>{r.name} {r.verified && <span style={{ color: C.gold, fontSize: "0.72rem" }}>✓ Verified</span>}</p>
-                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>{r.city} · {r.date}</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>{r.date}</p>
                 </div>
               </div>
-              <StarRating rating={r.rating} size={12} />
+              <div className="flex items-center gap-2">
+                <StarRating rating={r.rating} size={12} />
+                {r.isMine && <button onClick={() => handleDelete(r.id)} className="text-xs hover:opacity-60" style={{ color: "#d4183d", fontFamily: "'DM Sans',sans-serif" }}>Delete</button>}
+              </div>
             </div>
-            <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.92rem", color: C.green, marginBottom: 4 }}>{r.title}</p>
+            {r.title && <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.92rem", color: C.green, marginBottom: 4 }}>{r.title}</p>}
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#4a5a4a", lineHeight: 1.75, fontStyle: "italic" }}>"{r.text}"</p>
           </div>
         ))}
-
-        {submitted && (
-          <div className="p-5 text-center" style={{ backgroundColor: "rgba(201,168,76,0.08)", border: `1px solid rgba(201,168,76,0.25)` }}>
-            <Check size={20} color={C.gold} style={{ margin: "0 auto 8px" }} />
-            <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>Your review has been submitted. Thank you!</p>
-          </div>
-        )}
       </div>
 
-      {/* Write review */}
-      {!submitted && (
+      {!alreadyReviewed && (
         <div>
           {!showForm ? (
-            <button onClick={() => setShowForm(true)} className="px-6 py-3 text-sm uppercase tracking-widest border hover:border-[#c9a84c] transition-colors"
+            <button onClick={() => { if (!user) { toast.error("Please log in to write a review."); return; } setShowForm(true); }}
+              className="px-6 py-3 text-sm uppercase tracking-widest border hover:border-[#c9a84c] transition-colors"
               style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
               Write a Review
             </button>
           ) : (
             <form onSubmit={handleSubmit} className="p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
               <h4 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", color: C.green, marginBottom: 16 }}>Write a Review</h4>
-              {/* Star selector */}
               <div className="flex gap-1 mb-4">
                 {[1, 2, 3, 4, 5].map(n => (
                   <button key={n} type="button" onMouseEnter={() => setHoverRating(n)} onMouseLeave={() => setHoverRating(0)} onClick={() => setNewRating(n)}>
@@ -284,15 +328,17 @@ function ReviewSection({ productId }: { productId: string }) {
                   </button>
                 ))}
               </div>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Review title (optional)"
                 className="w-full px-4 py-2.5 mb-3 text-sm outline-none"
                 style={{ border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent", color: C.green, fontFamily: "'DM Sans',sans-serif" }} />
               <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Share your experience with this product..." required rows={4}
                 className="w-full px-4 py-2.5 mb-4 text-sm outline-none resize-none"
                 style={{ border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent", color: C.green, fontFamily: "'DM Sans',sans-serif" }} />
               <div className="flex gap-3">
-                <button type="submit" className="px-6 py-2.5 text-sm uppercase tracking-widest"
-                  style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>Submit Review</button>
+                <button type="submit" disabled={submitting} className="px-6 py-2.5 text-sm uppercase tracking-widest"
+                  style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif", opacity: submitting ? 0.6 : 1 }}>
+                  {submitting ? "Submitting..." : "Submit Review"}
+                </button>
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2.5 text-sm border"
                   style={{ borderColor: "rgba(26,61,43,0.2)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
               </div>
@@ -303,7 +349,6 @@ function ReviewSection({ productId }: { productId: string }) {
     </div>
   );
 }
-
 // ─── Sticky Buy Bar ───────────────────────────────────────────────────────────
 function StickyBar({ product, visible, onAddToCart }: { product: Product; visible: boolean; onAddToCart: () => void }) {
   return (
@@ -332,11 +377,11 @@ function StickyBar({ product, visible, onAddToCart }: { product: Product; visibl
 export default function ProductDetail() {
   const { slug } = useParams<{ slug: string }>();
   const navigate  = useNavigate();
-  const { addToCart, toggleWishlist, wishlist } = useStore();
+  const { addToCart, toggleWishlist, wishlist, products, productsLoading } = useStore();
 
-  const product = PRODUCTS.find(p => p.slug === slug) || PRODUCTS[0];
-  const related = PRODUCTS.filter(p => p.id !== product.id);
-  const inWishlist = wishlist.has(product.id);
+  const product = products.find(p => p.slug === slug);
+  const related = products.filter(p => p.id !== product?.id);
+  const inWishlist = product ? wishlist.has(product.id) : false;
 
   const [qty, setQty]             = useState(1);
   const [stickyVisible, setStickyVisible] = useState(false);
@@ -346,7 +391,26 @@ export default function ProductDetail() {
     const obs = new IntersectionObserver(([entry]) => setStickyVisible(!entry.isIntersecting), { threshold: 0 });
     if (ctaRef.current) obs.observe(ctaRef.current);
     return () => obs.disconnect();
-  }, []);
+  }, [product]);
+
+  if (productsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center pt-20" style={{ backgroundColor: C.ivory }}>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted }}>Loading product…</p>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center pt-20 text-center px-4" style={{ backgroundColor: C.ivory }}>
+        <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.8rem", color: C.green, marginBottom: 12 }}>Product Not Found</h2>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted, marginBottom: 24 }}>This product may have been removed or is no longer available.</p>
+        <button onClick={() => navigate("/shop")} className="px-6 py-3 text-sm uppercase tracking-widest"
+          style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>Back to Shop</button>
+      </div>
+    );
+  }
 
   const handleAddToCart = () => addToCart(product, qty);
 
@@ -374,7 +438,7 @@ export default function ProductDetail() {
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 mb-16">
           {/* Gallery */}
           <FadeIn>
-            <ImageGallery />
+            <ImageGallery product={product} />
           </FadeIn>
 
           {/* Info */}
@@ -495,7 +559,7 @@ export default function ProductDetail() {
               <GoldLine />
               <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.6rem", fontWeight: 700, color: C.green }}>Customer Reviews</h2>
             </div>
-            <ReviewSection productId={product.id} />
+            <ReviewSection product={product} />
           </div>
         </FadeIn>
 
@@ -507,7 +571,7 @@ export default function ProductDetail() {
               <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.6rem", fontWeight: 700, color: C.green }}>You May Also Like</h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {PRODUCTS.map(p => (
+              {related.map(p => (
                 <ProductCard key={p.id} product={p}
                   onView={() => navigate(`/products/${p.slug}`)}
                   onAddToCart={() => addToCart(p)}

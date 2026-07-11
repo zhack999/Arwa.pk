@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore } from "../store";
-import { PRODUCTS, ALL_BENEFITS, ALL_SKIN_TYPES, ALL_CATEGORIES, type Product } from "../data";
+import { ALL_BENEFITS, ALL_SKIN_TYPES, type Product } from "../data";
+import { fetchCategories, type Category } from "../api/categories";
 import { C, FadeIn, GoldLine, ProductCard } from "../shared";
 import { Filter, Grid, List, Search, X, ChevronDown, SlidersHorizontal, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -32,6 +33,7 @@ function applySort(products: Product[], sort: SortKey) {
 
 // ─── Filter Sidebar ───────────────────────────────────────────────────────────
 function FilterSidebar({
+  categories,
   category, setCategory,
   maxPrice, setMaxPrice,
   selectedBenefits, setSelectedBenefits,
@@ -39,6 +41,7 @@ function FilterSidebar({
   inStockOnly, setInStockOnly,
   onClear,
 }: {
+  categories: { id: string; label: string }[];
   category: string; setCategory: (v: string) => void;
   maxPrice: number; setMaxPrice: (v: number) => void;
   selectedBenefits: string[]; setSelectedBenefits: (v: string[]) => void;
@@ -67,7 +70,7 @@ function FilterSidebar({
       {/* Category */}
       <div className="mb-6">
         <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.68rem", letterSpacing: "0.3em", textTransform: "uppercase", color: C.gold, marginBottom: 12 }}>Category</p>
-        {ALL_CATEGORIES.map(cat => (
+        {categories.map(cat => (
           <button key={cat.id} onClick={() => setCategory(cat.id)}
             className="w-full text-left px-3 py-2 mb-1 text-sm transition-all"
             style={{ backgroundColor: category === cat.id ? "rgba(201,168,76,0.12)" : "transparent", color: category === cat.id ? C.gold : C.green, fontFamily: "'DM Sans',sans-serif", borderLeft: category === cat.id ? `2px solid ${C.gold}` : "2px solid transparent" }}>
@@ -166,7 +169,16 @@ function EmptyState({ onClear }: { onClear: () => void }) {
 export default function Shop() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { addToCart, wishlist, toggleWishlist, setQuickViewId } = useStore();
+  const { addToCart, wishlist, toggleWishlist, setQuickViewId, products, productsLoading, productsError } = useStore();
+
+  // Real categories, fetched from the backend (admin-managed) instead of a
+  // hardcoded list. "All Products" is a client-side pseudo-category.
+  const [categories, setCategories] = useState<{ id: string; label: string }[]>([{ id: "all", label: "All Products" }]);
+  useEffect(() => {
+    fetchCategories()
+      .then(cats => setCategories([{ id: "all", label: "All Products" }, ...cats.map(c => ({ id: c.id, label: c.name }))]))
+      .catch(() => {}); // filter sidebar just shows "All Products" if this fails
+  }, []);
 
   // Filter state
   const [category,         setCategory]         = useState("all");
@@ -189,7 +201,7 @@ export default function Shop() {
   };
 
   const filtered = useMemo(() => {
-    let res = PRODUCTS.filter(p => {
+    let res = products.filter(p => {
       if (category !== "all" && p.category !== category) return false;
       if (p.price > maxPrice) return false;
       if (inStockOnly && p.stock === 0) return false;
@@ -199,7 +211,7 @@ export default function Shop() {
       return true;
     });
     return applySort(res, sort);
-  }, [category, sort, maxPrice, selectedBenefits, selectedSkins, inStockOnly, searchQ]);
+  }, [products, category, sort, maxPrice, selectedBenefits, selectedSkins, inStockOnly, searchQ]);
 
   const totalPages = Math.ceil((filtered.length + 1) / ITEMS_PER_PAGE); // +1 for coming soon
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
@@ -253,7 +265,7 @@ export default function Shop() {
                   <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", color: C.green }}>Filters</h3>
                   <button onClick={() => setFilterOpen(false)}><X size={20} color={C.green} /></button>
                 </div>
-                <FilterSidebar category={category} setCategory={setCategory} maxPrice={maxPrice} setMaxPrice={setMaxPrice}
+                <FilterSidebar categories={categories} category={category} setCategory={setCategory} maxPrice={maxPrice} setMaxPrice={setMaxPrice}
                   selectedBenefits={selectedBenefits} setSelectedBenefits={setSelectedBenefits}
                   selectedSkins={selectedSkins} setSelectedSkins={setSelectedSkins}
                   inStockOnly={inStockOnly} setInStockOnly={setInStockOnly}
@@ -266,7 +278,7 @@ export default function Shop() {
         <div className="flex gap-8">
           {/* Desktop sidebar */}
           <aside className="hidden md:block w-56 flex-shrink-0">
-            <FilterSidebar category={category} setCategory={setCategory} maxPrice={maxPrice} setMaxPrice={setMaxPrice}
+            <FilterSidebar categories={categories} category={category} setCategory={setCategory} maxPrice={maxPrice} setMaxPrice={setMaxPrice}
               selectedBenefits={selectedBenefits} setSelectedBenefits={setSelectedBenefits}
               selectedSkins={selectedSkins} setSelectedSkins={setSelectedSkins}
               inStockOnly={inStockOnly} setInStockOnly={setInStockOnly}
@@ -339,7 +351,7 @@ export default function Shop() {
                 )}
                 {category !== "all" && (
                   <span className="flex items-center gap-1 px-3 py-1 text-xs" style={{ backgroundColor: "rgba(201,168,76,0.12)", color: C.gold, fontFamily: "'DM Sans',sans-serif" }}>
-                    {ALL_CATEGORIES.find(c => c.id === category)?.label} <button onClick={() => setCategory("all")}><X size={10} /></button>
+                    {categories.find(c => c.id === category)?.label} <button onClick={() => setCategory("all")}><X size={10} /></button>
                   </span>
                 )}
                 {selectedBenefits.map(b => (
@@ -351,7 +363,11 @@ export default function Shop() {
             )}
 
             {/* Product grid */}
-            {filtered.length === 0 ? (
+            {productsLoading ? (
+              <div className="col-span-full text-center py-24" style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted }}>Loading products…</div>
+            ) : productsError ? (
+              <div className="col-span-full text-center py-24" style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted }}>Couldn't load products. Please try again later.</div>
+            ) : filtered.length === 0 ? (
               <div className="grid"><EmptyState onClear={clearFilters} /></div>
             ) : (
               <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5" : "flex flex-col gap-5"}>

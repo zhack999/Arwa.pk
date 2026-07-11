@@ -1,3 +1,14 @@
+import { fetchAdminCustomers, type AdminCustomer as AdminCustomerType } from "../api/customers";
+import {
+  fetchOrders, fetchOrderDetail, updateOrderStatus as updateOrderStatusApi,
+  updateOrderNotes as updateOrderNotesApi, type AdminOrder as AdminOrderType,
+  type OrderItem as OrderItemType, type OrderTimelineEntry as OrderTimelineType,
+} from "../api/orders";
+import {
+  fetchCategories, createCategory, updateCategory, deleteCategory,
+  type Category,
+} from "../api/categories";
+import { fetchDashboardStats, type DashboardStats as DashboardStatsType } from "../api/dashboard";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
@@ -8,6 +19,10 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { useStore } from "../store";
+import {
+  fetchProducts, createProduct as createProductApi, updateProduct as updateProductApi,
+  deleteProduct as deleteProductApi, type AdminProduct as AdminProductType,
+} from "../api/products";
 import { AdminLockScreen } from "./AdminLogin";
 import {
   LayoutDashboard, Package, ShoppingBag, Users, Megaphone,
@@ -104,9 +119,6 @@ interface AdminProduct {
   discount: number; stock: number; sold: number; status: "active"|"draft"; featured: boolean;
   category: string; tags: string[]; weight: string;
 }
-const INITIAL_PRODUCTS: AdminProduct[] = [
-  { id:"p1",name:"Arwa Botaniqs",subtitle:"Beauty Soap",sku:"ARW-BS-200G",price:549,oldPrice:1000,discount:45,stock:50,sold:87,status:"active",featured:true,category:"soap",tags:["botanical","acne","brightening"],weight:"200g" },
-];
 
 const SALES_DATA = [
   { date:"Jun 18",revenue:1098,orders:2 },{ date:"Jun 19",revenue:2196,orders:4 },
@@ -160,13 +172,12 @@ const ADMIN_TICKETS = [
   { id:"TKT-005",customer:"Maryam Ali",   subject:"Change delivery address",             status:"resolved",   date:"Jun 27, 2026",priority:"medium" },
 ];
 
-const ADMIN_NOTIFICATIONS_DATA = [
-  { id:"n1",type:"order",  icon:ShoppingBag,title:"New Order",         msg:"ARW-235891 placed by Fatima Zahra — Rs. 549",           time:"5 min ago",  read:false },
-  { id:"n2",type:"alert",  icon:AlertTriangle,title:"Low Stock Alert", msg:"Arwa Botaniqs Beauty Soap — 50 units remaining",        time:"1 hour ago", read:false },
-  { id:"n3",type:"message",icon:Mail,        title:"Support Ticket",   msg:"TKT-002: Amna Malik requested a refund",                time:"2 hours ago",read:false },
-  { id:"n4",type:"order",  icon:ShoppingBag,title:"Order Delivered",   msg:"ARW-229034 delivered to Zara Ahmed in Islamabad",       time:"3 hours ago",read:true  },
-  { id:"n5",type:"system", icon:Info,        title:"System Update",    msg:"Dashboard data refreshed successfully",                 time:"5 hours ago",read:true  },
-];
+function adminNotifIcon(type: string) {
+  if (type === "admin_order") return ShoppingBag;
+  if (type === "admin_customer") return Users;
+  if (type === "admin_stock") return AlertTriangle;
+  return Bell;
+}
 
 // ─── Shared Utilities ─────────────────────────────────────────────────────────
 function ABadge({ status }: { status: string }) {
@@ -179,9 +190,9 @@ function ABadge({ status }: { status: string }) {
   );
 }
 
-function ACard({ children, className = "" }: { children: ReactNode; className?: string }) {
+function ACard({ children, className = "", style, onClick }: { children: ReactNode; className?: string; style?: React.CSSProperties; onClick?: React.MouseEventHandler<HTMLDivElement> }) {
   return (
-    <div className={className} style={{ backgroundColor: A.card, border: `1px solid ${A.border}` }}>
+    <div className={className} style={{ backgroundColor: A.card, border: `1px solid ${A.border}`, ...style }} onClick={onClick}>
       {children}
     </div>
   );
@@ -302,6 +313,7 @@ function SearchBar({ value, onChange, placeholder = "Search..." }: { value: stri
 const ADMIN_NAV = [
   { label: "Dashboard",     href: "/admin",               icon: LayoutDashboard },
   { label: "Products",      href: "/admin/products",      icon: Package },
+  { label: "Categories",    href: "/admin/categories",    icon: Tag },
   { label: "Orders",        href: "/admin/orders",        icon: ShoppingBag },
   { label: "Customers",     href: "/admin/customers",     icon: Users },
   { label: "Marketing",     href: "/admin/marketing",     icon: Megaphone },
@@ -314,20 +326,22 @@ const ADMIN_NAV = [
 
 // ─── Admin Layout ─────────────────────────────────────────────────────────────
 export default function AdminLayout() {
-  const { isAdmin, adminLogout } = useStore();
+  const { isAdmin, adminAuthLoading, adminLogout, adminNotifications, adminUnreadCount, markAdminNotifRead, markAllAdminNotifsRead, deleteAdminNotif } = useStore();
   const navigate  = useNavigate();
   const location  = useLocation();
   const [collapsed,   setCollapsed]   = useState(false);
   const [mobileOpen,  setMobileOpen]  = useState(false);
-  const [notifBadge,  setNotifBadge]  = useState(3);
+  const [notifOpen,   setNotifOpen]   = useState(false);
   const [locked,      setLocked]      = useState(false);
   const [searchVal,   setSearchVal]   = useState("");
-  const lockTimer = useRef<ReturnType<typeof setTimeout>>();
+const lockTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Guard
+  // Guard — only redirect once we're SURE the login-check finished and failed.
+  // Redirecting while adminAuthLoading is still true would kick out a
+  // genuinely logged-in admin just because the cookie check hadn't resolved yet.
   useEffect(() => {
-    if (!isAdmin) navigate("/admin/login");
-  }, [isAdmin]);
+    if (!adminAuthLoading && !isAdmin) navigate("/admin/login");
+  }, [isAdmin, adminAuthLoading]);
 
   // Session timeout after 20 min
   const resetTimer = () => {
@@ -391,6 +405,34 @@ export default function AdminLayout() {
     </div>
   );
 
+  if (adminAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
+        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
+      </div>
+    );
+  }
+if (adminAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
+        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
+      </div>
+    );
+  }
+  if (adminAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
+        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
+      </div>
+    );
+  }
+   if (adminAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
+        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
+      </div>
+    );
+  }
   if (!isAdmin) return null;
 
   return (
@@ -452,14 +494,53 @@ export default function AdminLayout() {
             </div>
 
             {/* Notifications */}
-            <button onClick={() => { navigate("/admin/notifications"); setNotifBadge(0); }}
-              className="relative p-2 hover:opacity-70 transition-opacity">
-              <Bell size={18} color={A.muted} />
-              {notifBadge > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold"
-                  style={{ backgroundColor: A.red, color: "white", fontFamily: F.sans }}>{notifBadge}</span>
-              )}
-            </button>
+            <div className="relative">
+              <button onClick={() => setNotifOpen(!notifOpen)} className="relative p-2 hover:opacity-70 transition-opacity">
+                <Bell size={18} color={A.muted} />
+                {adminUnreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold"
+                    style={{ backgroundColor: A.red, color: "white", fontFamily: F.sans }}>{adminUnreadCount}</span>
+                )}
+              </button>
+              <AnimatePresence>
+                {notifOpen && (
+                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                    className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto z-40"
+                    style={{ backgroundColor: A.card2, boxShadow: "0 4px 20px rgba(0,0,0,0.3)", border: `1px solid ${A.border}` }}>
+                    <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: A.border }}>
+                      <p style={{ fontFamily: F.sans, fontSize: "0.82rem", color: A.ivory, fontWeight: 600 }}>Notifications</p>
+                      <div className="flex items-center gap-3">
+                        {adminUnreadCount > 0 && (
+                          <button onClick={markAllAdminNotifsRead} style={{ fontFamily: F.sans, fontSize: "0.7rem", color: A.gold }}>Mark all read</button>
+                        )}
+                        <button onClick={() => { navigate("/admin/notifications"); setNotifOpen(false); }} style={{ fontFamily: F.sans, fontSize: "0.7rem", color: A.muted }}>View all</button>
+                      </div>
+                    </div>
+                    {adminNotifications.length === 0 ? (
+                      <p className="px-4 py-6 text-center" style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted }}>No notifications yet.</p>
+                    ) : (
+                      adminNotifications.slice(0, 8).map(n => {
+                        const Icon = adminNotifIcon(n.type);
+                        return (
+                          <div key={n.id} onClick={() => { markAdminNotifRead(n.id); if (n.link) { navigate(n.link); setNotifOpen(false); } }}
+                            className="px-4 py-3 border-b cursor-pointer hover:opacity-90 transition-opacity flex items-start gap-3"
+                            style={{ borderColor: A.border, backgroundColor: n.is_read ? "transparent" : "rgba(201,168,76,0.06)" }}>
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: n.is_read ? A.bg : "rgba(201,168,76,0.15)" }}>
+                              <Icon size={14} color={n.is_read ? A.muted : A.gold} />
+                            </div>
+                            <div className="flex-1">
+                              <p style={{ fontFamily: F.sans, fontSize: "0.8rem", fontWeight: n.is_read ? 400 : 600, color: A.ivory }}>{n.title}</p>
+                              <p style={{ fontFamily: F.sans, fontSize: "0.74rem", color: A.muted, marginTop: 2 }}>{n.message}</p>
+                            </div>
+                            <button onClick={e => { e.stopPropagation(); deleteAdminNotif(n.id); }} style={{ color: A.muted, fontSize: "0.9rem" }}>×</button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             {/* Admin avatar */}
             <div className="flex items-center gap-2">
@@ -490,14 +571,23 @@ export default function AdminLayout() {
 }
 
 // ─── Admin Dashboard ──────────────────────────────────────────────────────────
+// ─── Admin Dashboard ──────────────────────────────────────────────────────────
 export function AdminDashboard() {
   const navigate = useNavigate();
+  const [products, setProducts] = useState<AdminProductType[]>([]);
+  const [stats, setStats] = useState<DashboardStatsType | null>(null);
+
+  const [customers, setCustomers] = useState<AdminCustomerType[]>([]);
+  useEffect(() => {
+    fetchProducts().then(setProducts).catch(() => {});
+    fetchDashboardStats().then(setStats).catch(() => {});
+    fetchAdminCustomers().then(setCustomers).catch(() => {});
+  }, []);
 
   const totalRevenue = ADMIN_ORDERS.filter(o => o.status === "delivered").reduce((s, o) => s + o.total, 0);
   const totalOrders  = ADMIN_ORDERS.length;
   const pendingOrders = ADMIN_ORDERS.filter(o => ["pending","processing","packed"].includes(o.status)).length;
-  const lowStock     = INITIAL_PRODUCTS.filter(p => p.stock < 20).length;
-
+  const lowStock     = stats?.lowStock ?? products.filter(p => p.stock < 20).length;
   return (
     <div>
       {/* Welcome */}
@@ -522,8 +612,9 @@ export function AdminDashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <KPICard label="Total Revenue"    value={`Rs. ${totalRevenue.toLocaleString()}`} icon={DollarSign} trend="up"   trendVal="+12%" color={A.gold}   sub="All time" />
         <KPICard label="Total Orders"     value={String(totalOrders)}                    icon={ShoppingBag} trend="up"  trendVal="+8%"  color={A.blue}   sub={`${pendingOrders} pending`} />
-        <KPICard label="Customers"        value={String(ADMIN_CUSTOMERS.length)}         icon={Users}       trend="up"  trendVal="+5"   color={A.teal}   sub="Total registered" />
-        <KPICard label="Products"         value={String(INITIAL_PRODUCTS.length)}        icon={Package}     color={A.purple} sub="Active listings" />
+        <KPICard label="Customers"        value={String(customers.length)}         icon={Users}       trend="up"  trendVal=""   color={A.teal}   sub="Total registered" />
+        <KPICard label="Products"         value={String(stats?.totalProducts ?? products.length)} icon={Package}     color={A.purple} sub={`${stats?.activeProducts ?? 0} active`} />
+        <KPICard label="Out of Stock"     value={String(stats?.outOfStock ?? 0)}                  icon={AlertTriangle} color={A.red}   sub={`${stats?.lowStock ?? 0} low stock`} />
         <KPICard label="Site Visitors"    value="1,243"                                  icon={Globe}       trend="up"  trendVal="+18%" color={A.green2} sub="This month" />
         <KPICard label="Conversion Rate"  value="3.2%"                                   icon={TrendingUp}  trend="up"  trendVal="+0.4%" color={A.amber} sub="Visits to orders" />
       </div>
@@ -599,7 +690,7 @@ export function AdminDashboard() {
             <ABtn variant="ghost" size="sm" onClick={() => navigate("/admin/customers")}>View All</ABtn>
           </div>
           <div className="space-y-2">
-            {ADMIN_CUSTOMERS.slice(0, 5).map(c => (
+           {customers.slice(0, 5).map(c => (
               <div key={c.id} className="flex items-center gap-3 py-2" style={{ borderBottom: `1px solid ${A.border}` }}>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold flex-shrink-0"
                   style={{ backgroundColor: "rgba(201,168,76,0.15)", color: A.gold, fontFamily: F.serif }}>
@@ -610,7 +701,7 @@ export function AdminDashboard() {
                     <p style={{ fontFamily: F.sans, fontSize: "0.82rem", color: A.ivory }}>{c.name}</p>
                     {c.vip && <span style={{ fontSize: "0.6rem", color: A.gold, border: `1px solid ${A.gold}`, padding: "1px 4px", fontFamily: F.sans }}>VIP</span>}
                   </div>
-                  <p style={{ fontFamily: F.sans, fontSize: "0.72rem", color: A.muted }}>{c.city} · {c.orders} orders</p>
+                  <p style={{ fontFamily: F.sans, fontSize: "0.72rem", color: A.muted }}>{c.orders} orders</p>
                 </div>
                 <p style={{ fontFamily: F.serif, fontSize: "0.88rem", color: A.gold, flexShrink: 0 }}>Rs. {c.spent.toLocaleString()}</p>
               </div>
@@ -627,9 +718,9 @@ export function AdminDashboard() {
               <AlertTriangle size={16} color={A.amber} />
               <h4 style={{ fontFamily: F.sans, fontSize: "0.82rem", fontWeight: 600, color: A.amber }}>Low Stock Alert</h4>
             </div>
-            {INITIAL_PRODUCTS.filter(p => p.stock < 20).map(p => (
+           {(stats?.lowStockList ?? []).map(p => (
               <div key={p.id} className="flex justify-between items-center py-1.5" style={{ borderBottom: `1px solid ${A.border}` }}>
-                <p style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.text }}>{p.subtitle}</p>
+                <p style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.text }}>{p.name}{p.subtitle ? ` — ${p.subtitle}` : ""}</p>
                 <span style={{ fontFamily: F.sans, fontSize: "0.78rem", color: A.amber }}>{p.stock} left</span>
               </div>
             ))}
@@ -663,48 +754,96 @@ export function AdminDashboard() {
 
 // ─── Admin Products ───────────────────────────────────────────────────────────
 export function AdminProducts() {
-  const [products, setProducts]   = useState(INITIAL_PRODUCTS);
+  const {} = useStore();
+  const [products, setProducts]   = useState<AdminProductType[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading]     = useState(true);
   const [search,   setSearch]     = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortBy,   setSortBy]     = useState("name");
   const [selected, setSelected]   = useState<string[]>([]);
-  const [editProduct, setEditProduct] = useState<AdminProduct | null>(null);
+  const [editProduct, setEditProduct] = useState<AdminProductType | null>(null);
   const [showForm, setShowForm]   = useState(false);
   const [deleteId, setDeleteId]   = useState<string | null>(null);
+  const [saving,   setSaving]     = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
-  const empty = { id:"", name:"", subtitle:"", sku:"", price:0, oldPrice:0, discount:0, stock:0, sold:0, status:"active" as const, featured:false, category:"soap", tags:[], weight:"" };
-  const [form, setForm]  = useState<AdminProduct>(empty);
+  const empty: AdminProductType = { id:"", name:"", subtitle:"", sku:"", price:0, oldPrice:0, discount:0, stock:0, sold:0, status:"active", featured:false, category:"", categoryName:"", tags:[], weight:"", imageUrl:null };
+  const [form, setForm]  = useState<AdminProductType>(empty);
+
+  // Load products + categories from the backend when the page opens
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [prods, cats] = await Promise.all([fetchProducts(), fetchCategories()]);
+      setProducts(prods);
+      setCategories(cats);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load products");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { loadData(); }, []);
 
   const filtered = products
     .filter(p => (filterStatus === "all" || p.status === filterStatus))
     .filter(p => `${p.name} ${p.subtitle} ${p.sku}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => sortBy === "price" ? a.price - b.price : sortBy === "stock" ? a.stock - b.stock : a.name.localeCompare(b.name));
 
-  const openAdd  = () => { setForm(empty); setEditProduct(null); setShowForm(true); };
-  const openEdit = (p: AdminProduct) => { setForm(p); setEditProduct(p); setShowForm(true); };
+  const openAdd  = () => { setForm({ ...empty, category: categories[0]?.id || "" }); setEditProduct(null); setImageFile(null); setShowForm(true); };
+  const openEdit = (p: AdminProductType) => { setForm(p); setEditProduct(p); setImageFile(null); setShowForm(true); };
 
-  const saveProduct = () => {
+  const saveProduct = async () => {
     if (!form.name || !form.sku) { toast.error("Name and SKU are required"); return; }
-    if (editProduct) {
-      setProducts(ps => ps.map(p => p.id === editProduct.id ? { ...form } : p));
-      toast.success("Product updated!");
-    } else {
-      setProducts(ps => [...ps, { ...form, id: `p${Date.now()}`, sold: 0 }]);
-      toast.success("Product added!");
+   if (!form.category) { toast.error("Please choose a category"); return; }
+
+    setSaving(true);
+    try {
+      if (editProduct) {
+        const updated = await updateProductApi(editProduct.id, { ...form, imageFile });
+        setProducts(ps => ps.map(p => p.id === editProduct.id ? updated : p));
+        toast.success("Product updated!");
+      } else {
+        const created = await createProductApi({ ...form, imageFile });
+        setProducts(ps => [...ps, created]);
+        toast.success("Product added!");
+      }
+      setShowForm(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save product");
+    } finally {
+      setSaving(false);
     }
-    setShowForm(false);
   };
 
-  const deleteProduct = (id: string) => {
-    setProducts(ps => ps.filter(p => p.id !== id));
-    setSelected(s => s.filter(x => x !== id));
-    toast.info("Product deleted");
+ const removeProduct = async (id: string) => {
+    try {
+      await deleteProductApi(id);
+      setProducts(ps => ps.filter(p => p.id !== id));
+      setSelected(s => s.filter(x => x !== id));
+      toast.info("Product deleted");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete product");
+    }
   };
 
   const toggleSelect = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  const bulkDelete   = () => { setProducts(ps => ps.filter(p => !selected.includes(p.id))); setSelected([]); toast.info(`${selected.length} products deleted`); };
+ const bulkDelete   = async () => {
+    const ids = [...selected];
+    for (const id of ids) {
+      try { await deleteProductApi(id); } catch { /* continue */ }
+    }
+    setProducts(ps => ps.filter(p => !ids.includes(p.id)));
+    setSelected([]);
+    toast.info(`${ids.length} products deleted`);
+  };
 
   const inp2: React.CSSProperties = { width: "100%", padding: "8px 12px", fontSize: "0.84rem", fontFamily: F.sans, backgroundColor: A.bg, border: `1px solid ${A.border}`, color: A.text, outline: "none" };
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: A.muted, fontFamily: F.sans }}>Loading products...</div>;
+  }
 
   return (
     <div>
@@ -730,7 +869,6 @@ export function AdminProducts() {
           <div className="flex gap-2 items-center ml-auto">
             <span style={{ fontFamily: F.sans, fontSize: "0.78rem", color: A.muted }}>{selected.length} selected</span>
             <ABtn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={12} /> Delete</ABtn>
-            <ABtn variant="ghost" size="sm" onClick={() => setSelected([])}><X size={12} /> Clear</ABtn>
           </div>
         )}
       </div>
@@ -774,8 +912,6 @@ export function AdminProducts() {
                   <td className="p-4">
                     <div className="flex items-center gap-1">
                       <button onClick={() => openEdit(p)} className="p-1.5 hover:opacity-70"><Edit2 size={13} color={A.gold} /></button>
-                      <button onClick={() => { setProducts(ps => [...ps, { ...p, id: `p${Date.now()}`, sku: p.sku + "-COPY", sold: 0 }]); toast.success("Product duplicated!"); }}
-                        className="p-1.5 hover:opacity-70"><Copy size={13} color={A.muted} /></button>
                       <button onClick={() => setDeleteId(p.id)} className="p-1.5 hover:opacity-70"><Trash2 size={13} color={A.red} /></button>
                     </div>
                   </td>
@@ -789,12 +925,19 @@ export function AdminProducts() {
       {/* Product Form Modal */}
       <AModal open={showForm} onClose={() => setShowForm(false)} title={editProduct ? "Edit Product" : "Add Product"} wide>
         <div className="grid sm:grid-cols-2 gap-4">
-          {[["Product Name *", "name"], ["Subtitle", "subtitle"], ["SKU *", "sku"], ["Weight", "weight"], ["Category", "category"]].map(([label, key]) => (
+          {[["Product Name *", "name"], ["Subtitle", "subtitle"], ["SKU *", "sku"], ["Weight", "weight"]].map(([label, key]) => (
             <div key={key}>
               <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>{label}</label>
               <input value={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} style={inp2} />
             </div>
           ))}
+          <div>
+            <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>Category *</label>
+            <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={{ ...inp2, width: "100%" }}>
+              <option value="">Select category</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
           {[["Price (Rs.)*", "price"], ["Old Price", "oldPrice"], ["Discount %", "discount"], ["Stock", "stock"]].map(([label, key]) => (
             <div key={key}>
               <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>{label}</label>
@@ -807,40 +950,221 @@ export function AdminProducts() {
               <option value="active">Active</option><option value="draft">Draft</option>
             </select>
           </div>
+          <div>
+            <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>Product Image</label>
+            <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} style={inp2} />
+          </div>
           <div className="flex items-center gap-2 pt-4">
             <input type="checkbox" id="feat" checked={form.featured} onChange={e => setForm(f => ({ ...f, featured: e.target.checked }))} />
             <label htmlFor="feat" style={{ fontFamily: F.sans, fontSize: "0.84rem", color: A.muted }}>Featured Product</label>
           </div>
         </div>
         <div className="flex gap-3 mt-6">
-          <ABtn onClick={saveProduct}><Save size={13} /> {editProduct ? "Save Changes" : "Add Product"}</ABtn>
+          <ABtn onClick={saveProduct} disabled={saving}><Save size={13} /> {saving ? "Saving..." : editProduct ? "Save Changes" : "Add Product"}</ABtn>
           <ABtn variant="ghost" onClick={() => setShowForm(false)}>Cancel</ABtn>
         </div>
       </AModal>
 
-      <ConfirmModal open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => { if (deleteId) deleteProduct(deleteId); setDeleteId(null); }}
+      <ConfirmModal open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => { if (deleteId) removeProduct(deleteId); setDeleteId(null); }}
         title="Delete Product" message="Are you sure you want to delete this product? This action cannot be undone." />
     </div>
   );
 }
+// ─── Admin Categories ──────────────────────────────────────────────────────────
+export function AdminCategories() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editCat, setEditCat] = useState<Category | null>(null);
+  const [form, setForm] = useState({ name: "", slug: "" });
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      setCategories(await fetchCategories());
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load categories");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { loadData(); }, []);
+
+  const openAdd = () => { setForm({ name: "", slug: "" }); setEditCat(null); setShowForm(true); };
+  const openEdit = (c: Category) => { setForm({ name: c.name, slug: c.slug }); setEditCat(c); setShowForm(true); };
+
+  const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+ const saveCategory = async () => {
+    if (!form.name || !form.slug) { toast.error("Name and slug are required"); return; }
+
+    setSaving(true);
+    try {
+      if (editCat) {
+        const updated = await updateCategory(editCat.id, form);
+        setCategories(cs => cs.map(c => c.id === editCat.id ? updated : c));
+        toast.success("Category updated!");
+      } else {
+        const created = await createCategory(form);
+        setCategories(cs => [...cs, created]);
+        toast.success("Category added!");
+      }
+      setShowForm(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save category");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeCategory = async (id: string) => {
+    try {
+      await deleteCategory(id);
+      setCategories(cs => cs.filter(c => c.id !== id));
+      toast.info("Category deleted");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete category");
+    }
+  };
+
+  const inp2: React.CSSProperties = { width: "100%", padding: "8px 12px", fontSize: "0.84rem", fontFamily: F.sans, backgroundColor: A.bg, border: `1px solid ${A.border}`, color: A.text, outline: "none" };
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: A.muted, fontFamily: F.sans }}>Loading categories...</div>;
+  }
+
+  return (
+    <div>
+      <AHead title="Categories" sub={`${categories.length} categor${categories.length !== 1 ? "ies" : "y"}`}
+        action={<ABtn onClick={openAdd}><Plus size={14} /> Add Category</ABtn>} />
+
+      <ACard className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${A.border}` }}>
+                {["Name", "Slug", "Actions"].map(h => (
+                  <th key={h} className="p-4 text-left" style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {categories.length === 0 ? (
+                <tr><td colSpan={3} className="p-8 text-center" style={{ color: A.muted, fontFamily: F.sans }}>No categories found</td></tr>
+              ) : categories.map(c => (
+                <tr key={c.id} className="hover:bg-white/3 transition-colors" style={{ borderBottom: `1px solid ${A.border}` }}>
+                  <td className="p-4"><p style={{ fontFamily: F.sans, fontSize: "0.84rem", color: A.ivory, fontWeight: 600 }}>{c.name}</p></td>
+                  <td className="p-4"><code style={{ fontFamily: "'DM Mono',monospace", fontSize: "0.75rem", color: A.muted }}>{c.slug}</code></td>
+                  <td className="p-4">
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(c)} className="p-1.5 hover:opacity-70"><Edit2 size={13} color={A.gold} /></button>
+                      <button onClick={() => setDeleteId(c.id)} className="p-1.5 hover:opacity-70"><Trash2 size={13} color={A.red} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </ACard>
+
+      <AModal open={showForm} onClose={() => setShowForm(false)} title={editCat ? "Edit Category" : "Add Category"}>
+        <div className="space-y-4">
+          <div>
+            <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>Name *</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value, slug: editCat ? f.slug : slugify(e.target.value) }))} style={inp2} />
+          </div>
+          <div>
+            <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>Slug *</label>
+            <input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value }))} style={inp2} />
+          </div>
+        </div>
+        <div className="flex gap-3 mt-6">
+          <ABtn onClick={saveCategory} disabled={saving}><Save size={13} /> {saving ? "Saving..." : editCat ? "Save Changes" : "Add Category"}</ABtn>
+          <ABtn variant="ghost" onClick={() => setShowForm(false)}>Cancel</ABtn>
+        </div>
+      </AModal>
+
+      <ConfirmModal open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => { if (deleteId) removeCategory(deleteId); setDeleteId(null); }}
+        title="Delete Category" message="Are you sure you want to delete this category? This action cannot be undone." />
+    </div>
+  );
+}
 // ─── Admin Orders ─────────────────────────────────────────────────────────────
 export function AdminOrders() {
-  const [orders, setOrders]   = useState(ADMIN_ORDERS);
-  const [search, setSearch]   = useState("");
-  const [filter, setFilter]   = useState("all");
-  const [detail, setDetail]   = useState<AdminOrder | null>(null);
+  const [orders, setOrders]     = useState<AdminOrderType[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState("");
+  const [filter, setFilter]     = useState("all");
+  const [detail, setDetail]     = useState<AdminOrderType | null>(null);
+  const [detailItems, setDetailItems] = useState<OrderItemType[]>([]);
+  const [detailTimeline, setDetailTimeline] = useState<OrderTimelineType[]>([]);
   const [adminNote, setAdminNote] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
 
-  const allStatuses = ["all","pending","processing","packed","shipped","delivered","cancelled","refund-requested"];
+  const loadOrders = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchOrders();
+      setOrders(data);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load orders");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { loadOrders(); }, []);
+
+  const allStatuses = ["all","pending","processing","packed","shipped","delivered","cancelled"];
   const filtered = orders
     .filter(o => filter === "all" || o.status === filter)
-    .filter(o => `${o.id} ${o.customer} ${o.city}`.toLowerCase().includes(search.toLowerCase()));
+    .filter(o => `${o.orderNumber} ${o.customer} ${o.city}`.toLowerCase().includes(search.toLowerCase()));
 
-  const updateStatus = (id: string, status: OrderStatus) => {
-    setOrders(os => os.map(o => o.id === id ? { ...o, status } : o));
-    toast.success(`Order status updated to ${STATUS[status]?.label}`);
+  const changeStatus = async (id: string, status: string) => {
+    try {
+      const updated = await updateOrderStatusApi(id, status);
+      setOrders(os => os.map(o => o.id === id ? updated : o));
+      if (detail?.id === id) setDetail(updated);
+      toast.success(`Order status updated to ${STATUS[status]?.label ?? status}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    }
   };
+
+  const openDetail = async (o: AdminOrderType) => {
+    setDetail(o);
+    setAdminNote(o.adminNote);
+    setDetailItems([]);
+    setDetailTimeline([]);
+    try {
+      const full = await fetchOrderDetail(o.id);
+      setDetailItems(full.items);
+      setDetailTimeline(full.timeline);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load order details");
+    }
+  };
+
+  const saveNote = async () => {
+    if (!detail) return;
+    setSavingNote(true);
+    try {
+      const updated = await updateOrderNotesApi(detail.id, adminNote);
+      setOrders(os => os.map(o => o.id === detail.id ? updated : o));
+      setDetail(updated);
+      toast.success("Note saved!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save note");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: A.muted, fontFamily: F.sans }}>Loading orders...</div>;
+  }
 
   return (
     <div>
@@ -859,7 +1183,7 @@ export function AdminOrders() {
       </div>
 
       <div className="flex gap-3 mb-5">
-        <SearchBar value={search} onChange={setSearch} placeholder="Search by ID, customer, city..." />
+        <SearchBar value={search} onChange={setSearch} placeholder="Search by order #, customer, city..." />
       </div>
 
       <ACard className="overflow-hidden">
@@ -867,7 +1191,7 @@ export function AdminOrders() {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: `1px solid ${A.border}` }}>
-                {["Order ID","Customer","Date","Items","Total","Payment","Status","Actions"].map(h => (
+                {["Order #","Customer","Date","Items","Total","Payment","Status","Actions"].map(h => (
                   <th key={h} className="p-4 text-left" style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted }}>{h}</th>
                 ))}
               </tr>
@@ -877,8 +1201,8 @@ export function AdminOrders() {
                 <tr><td colSpan={8} className="p-8 text-center" style={{ color: A.muted, fontFamily: F.sans }}>No orders found</td></tr>
               ) : filtered.map(o => (
                 <tr key={o.id} className="hover:bg-white/3 transition-colors cursor-pointer" style={{ borderBottom: `1px solid ${A.border}` }}
-                  onClick={() => { setDetail(o); setAdminNote(o.adminNote); }}>
-                  <td className="p-4"><span style={{ fontFamily: "'DM Mono',monospace", fontSize: "0.78rem", color: A.gold }}>{o.id}</span></td>
+                  onClick={() => openDetail(o)}>
+                  <td className="p-4"><span style={{ fontFamily: "'DM Mono',monospace", fontSize: "0.78rem", color: A.gold }}>{o.orderNumber}</span></td>
                   <td className="p-4">
                     <p style={{ fontFamily: F.sans, fontSize: "0.84rem", color: A.ivory, fontWeight: 600 }}>{o.customer}</p>
                     <p style={{ fontFamily: F.sans, fontSize: "0.72rem", color: A.muted }}>{o.city}, {o.province}</p>
@@ -888,14 +1212,14 @@ export function AdminOrders() {
                   <td className="p-4"><span style={{ fontFamily: F.serif, fontSize: "0.9rem", color: A.gold, fontWeight: 700 }}>Rs. {o.total.toLocaleString()}</span></td>
                   <td className="p-4"><span style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted }}>{o.payment}</span></td>
                   <td className="p-4" onClick={e => e.stopPropagation()}>
-                    <select value={o.status} onChange={e => updateStatus(o.id, e.target.value as OrderStatus)}
+                    <select value={o.status} onChange={e => changeStatus(o.id, e.target.value)}
                       style={{ fontSize: "0.75rem", fontFamily: F.sans, backgroundColor: A.bg, border: `1px solid ${A.border}`, color: STATUS[o.status]?.color ?? A.muted, padding: "4px 8px", outline: "none" }}>
                       {allStatuses.filter(s => s !== "all").map(s => <option key={s} value={s}>{STATUS[s]?.label ?? s}</option>)}
                     </select>
                   </td>
                   <td className="p-4" onClick={e => e.stopPropagation()}>
                     <div className="flex gap-1">
-                      <button onClick={() => { setDetail(o); setAdminNote(o.adminNote); }} className="p-1.5 hover:opacity-70"><Eye size={13} color={A.gold} /></button>
+                      <button onClick={() => openDetail(o)} className="p-1.5 hover:opacity-70"><Eye size={13} color={A.gold} /></button>
                       <button onClick={() => toast.info("Invoice print coming soon!")} className="p-1.5 hover:opacity-70"><Printer size={13} color={A.muted} /></button>
                     </div>
                   </td>
@@ -917,7 +1241,7 @@ export function AdminOrders() {
               <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${A.border}` }}>
                 <div>
                   <p style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.25em", color: A.muted, textTransform: "uppercase" }}>Order</p>
-                  <p style={{ fontFamily: F.serif, fontSize: "1.1rem", color: A.gold }}>{detail.id}</p>
+                  <p style={{ fontFamily: F.serif, fontSize: "1.1rem", color: A.gold }}>{detail.orderNumber}</p>
                 </div>
                 <button onClick={() => setDetail(null)}><X size={20} color={A.muted} /></button>
               </div>
@@ -942,10 +1266,40 @@ export function AdminOrders() {
                   </div>
                 ))}
 
+                {/* Order items (real) */}
+                {detailItems.length > 0 && (
+                  <div>
+                    <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 6 }}>Order Items</label>
+                    <div className="space-y-2">
+                      {detailItems.map(it => (
+                        <div key={it.id} className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${A.border}` }}>
+                          <span style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.text }}>{it.product_name} × {it.quantity}</span>
+                          <span style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.gold }}>Rs. {Number(it.subtotal).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Timeline (real) */}
+                {detailTimeline.length > 0 && (
+                  <div>
+                    <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 6 }}>Timeline</label>
+                    <div className="space-y-2">
+                      {detailTimeline.map(t => (
+                        <div key={t.id} className="flex justify-between py-1">
+                          <span style={{ fontFamily: F.sans, fontSize: "0.78rem", color: A.text }}>{STATUS[t.status]?.label ?? t.status}{t.note ? ` — ${t.note}` : ""}</span>
+                          <span style={{ fontFamily: F.sans, fontSize: "0.72rem", color: A.muted }}>{new Date(t.created_at).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Update status */}
                 <div>
                   <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 6 }}>Update Status</label>
-                  <select value={detail.status} onChange={e => { updateStatus(detail.id, e.target.value as OrderStatus); setDetail(d => d ? { ...d, status: e.target.value as OrderStatus } : null); }}
+                  <select value={detail.status} onChange={e => changeStatus(detail.id, e.target.value)}
                     style={{ width: "100%", padding: "8px 12px", fontSize: "0.84rem", fontFamily: F.sans, backgroundColor: A.bg, border: `1px solid ${A.border}`, color: A.text, outline: "none" }}>
                     {allStatuses.filter(s => s !== "all").map(s => <option key={s} value={s}>{STATUS[s]?.label ?? s}</option>)}
                   </select>
@@ -957,8 +1311,8 @@ export function AdminOrders() {
                   <textarea value={adminNote} onChange={e => setAdminNote(e.target.value)} rows={3}
                     className="w-full outline-none resize-none"
                     style={{ padding: "8px 12px", fontSize: "0.84rem", fontFamily: F.sans, backgroundColor: A.bg, border: `1px solid ${A.border}`, color: A.text }} />
-                  <ABtn size="sm" className="mt-2" onClick={() => { setOrders(os => os.map(o => o.id === detail.id ? { ...o, adminNote } : o)); toast.success("Note saved!"); }}>
-                    <Save size={12} /> Save Note
+                  <ABtn size="sm" className="mt-2" disabled={savingNote} onClick={saveNote}>
+                    <Save size={12} /> {savingNote ? "Saving..." : "Save Note"}
                   </ABtn>
                 </div>
               </div>
@@ -977,7 +1331,8 @@ export function AdminOrders() {
 
 // ─── Admin Customers ──────────────────────────────────────────────────────────
 export function AdminCustomers() {
-  const [customers, setCustomers] = useState(ADMIN_CUSTOMERS);
+  const [customers, setCustomers] = useState<AdminCustomerType[]>([]);
+  const [loading, setLoading]     = useState(true);
   const [search,    setSearch]    = useState("");
   const [profile,   setProfile]   = useState<AdminCustomer | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -986,6 +1341,16 @@ export function AdminCustomers() {
     .filter(c => filterStatus === "all" || c.status === filterStatus)
     .filter(c => `${c.name} ${c.email} ${c.city}`.toLowerCase().includes(search.toLowerCase()));
 
+  useEffect(() => {
+    fetchAdminCustomers()
+      .then(setCustomers)
+      .catch((err: any) => toast.error(err.message || "Failed to load customers"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Note: block/unblock and VIP toggling below are local-only (visual) for now —
+  // your backend has no `is_blocked`/`is_vip` columns yet. Real persistence is a
+  // quick follow-up once you want it (a one-column migration + one endpoint).
   const toggleBlock = (id: string) => {
     setCustomers(cs => cs.map(c => c.id === id ? { ...c, status: c.status === "blocked" ? "active" : "blocked" } : c));
     toast.info("Customer status updated");
@@ -993,6 +1358,10 @@ export function AdminCustomers() {
   const toggleVIP = (id: string) => {
     setCustomers(cs => cs.map(c => c.id === id ? { ...c, vip: !c.vip } : c));
   };
+
+ if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: A.muted, fontFamily: F.sans }}>Loading customers...</div>;
+  }
 
   return (
     <div>
@@ -1392,6 +1761,10 @@ export function AdminContent() {
 
 // ─── Admin Reports ────────────────────────────────────────────────────────────
 export function AdminReports() {
+  const [products, setProducts] = useState<AdminProductType[]>([]);
+  useEffect(() => {
+    fetchProducts().then(setProducts).catch(() => {});
+  }, []);
   const [range, setRange] = useState("14d");
   const totalRev  = SALES_DATA.reduce((s, d) => s + d.revenue, 0);
   const totalOrds = SALES_DATA.reduce((s, d) => s + d.orders, 0);
@@ -1488,7 +1861,7 @@ export function AdminReports() {
             </tr>
           </thead>
           <tbody>
-            {INITIAL_PRODUCTS.map(p => (
+            {products.map(p => (
               <tr key={p.id} style={{ borderBottom: `1px solid ${A.border}` }}>
                 <td className="py-3 px-2"><span style={{ fontFamily: F.sans, fontSize: "0.84rem", color: A.ivory }}>{p.name} {p.subtitle}</span></td>
                 <td className="py-3 px-2"><code style={{ fontFamily: "'DM Mono',monospace", fontSize: "0.75rem", color: A.muted }}>{p.sku}</code></td>
@@ -1506,7 +1879,7 @@ export function AdminReports() {
 
 // ─── Admin Settings ───────────────────────────────────────────────────────────
 export function AdminSettings() {
-  const [store, setStore]       = useState({ name: "Arwa Botaniqs", email: "havkeddd@gmail.com", phone: "+92 314 0628188", address: "Faisalabad, Pakistan", currency: "PKR", language: "English" });
+  const [store, setStore]       = useState({ name: "Arwa Botaniqs", email: "arwabotanicss@gmail.com", phone: "+92 304 9067897", address: "Faisalabad, Pakistan", currency: "PKR", language: "English" });
   const [shipping, setShipping] = useState({ rate: 300, minFree: 5000, days: "2-4" });
   const [maintenance, setMaintenance] = useState(false);
   const [payments, setPayments] = useState({ cod: true, jazzcash: true, easypaisa: true, visa: true });
@@ -1715,51 +2088,50 @@ export function AdminSupport() {
 
 // ─── Admin Notifications ──────────────────────────────────────────────────────
 export function AdminNotifications() {
-  const [notifs, setNotifs] = useState(ADMIN_NOTIFICATIONS_DATA);
-  const unread = notifs.filter(n => !n.read).length;
-
-  const markAll  = () => setNotifs(ns => ns.map(n => ({ ...n, read: true })));
-  const clearAll = () => { setNotifs([]); toast.info("All notifications cleared"); };
+  const navigate = useNavigate();
+  const { adminNotifications, adminUnreadCount, markAdminNotifRead, markAllAdminNotifsRead, deleteAdminNotif } = useStore();
 
   return (
     <div>
-      <AHead title="Notifications" sub={`${unread} unread notifications`}
+      <AHead title="Notifications" sub={`${adminUnreadCount} unread notifications`}
         action={
           <div className="flex gap-2">
-            <ABtn variant="ghost" size="sm" onClick={markAll}><Check size={12} /> Mark All Read</ABtn>
-            <ABtn variant="ghost" size="sm" onClick={clearAll}><Trash2 size={12} /> Clear All</ABtn>
+            <ABtn variant="ghost" size="sm" onClick={markAllAdminNotifsRead}><Check size={12} /> Mark All Read</ABtn>
           </div>
         } />
 
-      {notifs.length === 0 ? (
+      {adminNotifications.length === 0 ? (
         <ACard className="p-12 text-center">
           <Bell size={40} color={A.muted} style={{ margin: "0 auto 12px" }} />
           <p style={{ fontFamily: F.sans, fontSize: "0.88rem", color: A.muted }}>No notifications</p>
         </ACard>
       ) : (
         <div className="space-y-3">
-          {notifs.map(n => (
-            <motion.div key={n.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} layout>
-              <ACard className="p-4 flex items-start gap-4 cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ borderColor: n.read ? A.border : "rgba(201,168,76,0.35)", backgroundColor: n.read ? A.card : "rgba(201,168,76,0.05)" }}
-                onClick={() => setNotifs(ns => ns.map(x => x.id === n.id ? { ...x, read: true } : x))}>
-                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: n.read ? A.bg : "rgba(201,168,76,0.15)" }}>
-                  <n.icon size={16} color={n.read ? A.muted : A.gold} />
-                </div>
-                <div className="flex-1">
-                  <p style={{ fontFamily: F.sans, fontSize: "0.86rem", fontWeight: n.read ? 400 : 600, color: A.ivory }}>{n.title}</p>
-                  <p style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted, lineHeight: 1.6, marginTop: 2 }}>{n.msg}</p>
-                  <p style={{ fontFamily: F.sans, fontSize: "0.7rem", color: "rgba(245,240,232,0.3)", marginTop: 4 }}>{n.time}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {!n.read && <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: A.gold }} />}
-                  <button onClick={e => { e.stopPropagation(); setNotifs(ns => ns.filter(x => x.id !== n.id)); }}
-                    className="p-1 hover:opacity-60 transition-opacity"><X size={13} color={A.muted} /></button>
-                </div>
-              </ACard>
-            </motion.div>
-          ))}
+          {adminNotifications.map(n => {
+            const Icon = adminNotifIcon(n.type);
+            return (
+              <motion.div key={n.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} layout>
+                <ACard className="p-4 flex items-start gap-4 cursor-pointer hover:opacity-90 transition-opacity"
+                  style={{ borderColor: n.is_read ? A.border : "rgba(201,168,76,0.35)", backgroundColor: n.is_read ? A.card : "rgba(201,168,76,0.05)" }}
+                  onClick={() => { markAdminNotifRead(n.id); if (n.link) navigate(n.link); }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: n.is_read ? A.bg : "rgba(201,168,76,0.15)" }}>
+                    <Icon size={16} color={n.is_read ? A.muted : A.gold} />
+                  </div>
+                  <div className="flex-1">
+                    <p style={{ fontFamily: F.sans, fontSize: "0.86rem", fontWeight: n.is_read ? 400 : 600, color: A.ivory }}>{n.title}</p>
+                    <p style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted, lineHeight: 1.6, marginTop: 2 }}>{n.message}</p>
+                    <p style={{ fontFamily: F.sans, fontSize: "0.7rem", color: "rgba(245,240,232,0.3)", marginTop: 4 }}>{new Date(n.created_at).toLocaleString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!n.is_read && <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: A.gold }} />}
+                    <button onClick={e => { e.stopPropagation(); deleteAdminNotif(n.id); }}
+                      className="p-1 hover:opacity-60 transition-opacity"><X size={13} color={A.muted} /></button>
+                  </div>
+                </ACard>
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </div>

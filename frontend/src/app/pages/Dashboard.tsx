@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { updateProfileApi, changePasswordApi, uploadProfilePictureApi, removeProfilePictureApi } from "../api/profile";
+import { fetchAddresses, addAddressApi, updateAddressApi, deleteAddressApi, setDefaultAddressApi, type Address } from "../api/addresses";
+import { useState, useEffect } from "react";
+import { fetchMyOrders, type MyOrder } from "../api/myOrders";
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useStore } from "../store";
-import { PRODUCTS } from "../data";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { C, FadeIn, StarRating, GoldLine } from "../shared";
 import {
   LayoutDashboard, User, ShoppingBag, Heart, MapPin, CreditCard, Bell,
@@ -190,9 +193,12 @@ function PageHead({ title, sub }: { title: string; sub?: string }) {
 export function DashboardHome() {
   const { user, wishlistCount } = useStore();
   const navigate = useNavigate();
+  const [recentOrders, setRecentOrders] = useState<MyOrder[]>([]);
+
+  useEffect(() => { fetchMyOrders().then(setRecentOrders).catch(() => {}); }, []);
 
   const stats = [
-    { label: "Total Orders",    value: MOCK_ORDERS.length, icon: ShoppingBag, color: C.green,  href: "/dashboard/orders" },
+    { label: "Total Orders",    value: recentOrders.length, icon: ShoppingBag, color: C.green,  href: "/dashboard/orders" },
     { label: "Reward Points",   value: user?.points || 0,  icon: Award,       color: C.gold,   href: "/dashboard/rewards" },
     { label: "Wishlist Items",  value: wishlistCount,       icon: Heart,       color: "#d4183d", href: "/dashboard/wishlist" },
     { label: "Active Coupons",  value: MOCK_COUPONS.length, icon: Tag,         color: "#3b82f6", href: "/dashboard/coupons" },
@@ -233,7 +239,7 @@ export function DashboardHome() {
           <button onClick={() => navigate("/dashboard/orders")} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.gold }} className="hover:opacity-70">View all →</button>
         </div>
         <div className="space-y-3">
-          {MOCK_ORDERS.slice(0, 2).map(order => (
+          {recentOrders.slice(0, 2).map(order => (
             <div key={order.id} className="flex items-center justify-between p-4" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
               <div>
                 <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", fontWeight: 600, color: C.green }}>{order.id}</p>
@@ -270,19 +276,97 @@ export function DashboardHome() {
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
+const GENDER_OPTIONS = [
+  { value: "", label: "Prefer not to say" },
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+  { value: "other", label: "Other" },
+];
+
 export function DashboardProfile() {
-  const { user } = useStore();
+  const { user, updateUser } = useStore();
   const [editing, setEditing] = useState(false);
   const [name,    setName]    = useState(user?.name || "");
   const [email,   setEmail]   = useState(user?.email || "");
   const [phone,   setPhone]   = useState(user?.phone || "");
+  const [dob,     setDob]     = useState(user?.dateOfBirth ? user.dateOfBirth.slice(0, 10) : "");
+  const [gender,  setGender]  = useState(user?.gender || "");
   const [showPw,  setShowPw]  = useState(false);
   const [oldPw,   setOldPw]   = useState("");
   const [newPw,   setNewPw]   = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
+  const [uploadingPic, setUploadingPic] = useState(false);
 
-  const save = () => { setEditing(false); toast.success("Profile updated!"); };
+  const save = async () => {
+    const [first_name, ...rest] = name.trim().split(" ");
+    const last_name = rest.join(" ") || "-";
+    setSaving(true);
+    try {
+      const updated = await updateProfileApi(first_name, last_name, email, phone, dob || null, gender || null);
+      updateUser({
+        name: `${updated.first_name} ${updated.last_name}`.trim(),
+        email: updated.email,
+        phone: updated.phone || "",
+        dateOfBirth: updated.date_of_birth || null,
+        gender: updated.gender || null,
+      });
+      setEditing(false);
+      toast.success("Profile updated!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update profile.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const savePassword = async () => {
+    if (!oldPw || !newPw) { toast.error("Both password fields are required."); return; }
+    if (newPw.length < 6) { toast.error("New password must be at least 6 characters."); return; }
+    setChangingPw(true);
+    try {
+      await changePasswordApi(oldPw, newPw);
+      toast.success("Password changed!");
+      setOldPw(""); setNewPw("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to change password.");
+    } finally {
+      setChangingPw(false);
+    }
+  };
+
+  const handlePictureSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please select an image file."); return; }
+    setUploadingPic(true);
+    try {
+      const updated = await uploadProfilePictureApi(file);
+      updateUser({ profilePicture: updated.profile_picture || null });
+      toast.success("Profile picture updated!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to upload profile picture.");
+    } finally {
+      setUploadingPic(false);
+      e.target.value = "";
+    }
+  };
+
+  const handlePictureRemove = async () => {
+    setUploadingPic(true);
+    try {
+      const updated = await removeProfilePictureApi();
+      updateUser({ profilePicture: updated.profile_picture || null });
+      toast.info("Profile picture removed.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to remove profile picture.");
+    } finally {
+      setUploadingPic(false);
+    }
+  };
 
   const inp: React.CSSProperties = { width: "100%", padding: "10px 14px", fontSize: "0.88rem", outline: "none", border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent", color: C.green, fontFamily: "'DM Sans',sans-serif" };
+  const lbl: React.CSSProperties = { fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.2em", textTransform: "uppercase", color: C.muted, display: "block", marginBottom: 6 };
 
   return (
     <div>
@@ -290,16 +374,34 @@ export function DashboardProfile() {
 
       {/* Avatar */}
       <div className="flex items-center gap-5 mb-8 p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
-        <div className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl flex-shrink-0"
-          style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'Playfair Display',serif" }}>
-          {user?.name[0]}
+        <div className="relative w-16 h-16 flex-shrink-0">
+          {user?.profilePicture ? (
+            <img src={user.profilePicture} alt={user.name} className="w-16 h-16 rounded-full object-cover" />
+          ) : (
+            <div className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl"
+              style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'Playfair Display',serif" }}>
+              {user?.name[0]}
+            </div>
+          )}
+          <label className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
+            style={{ backgroundColor: C.green, border: `2px solid ${C.cream}`, opacity: uploadingPic ? 0.6 : 1 }}>
+            <Edit2 size={11} color={C.ivory} />
+            <input type="file" accept="image/*" className="hidden" disabled={uploadingPic} onChange={handlePictureSelect} />
+          </label>
         </div>
         <div>
           <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.2rem", fontWeight: 700, color: C.green }}>{user?.name}</p>
           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted }}>Member since {user?.joinDate}</p>
-          <div className="flex items-center gap-1 mt-1">
-            <Award size={13} color={C.gold} />
-            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.gold }}>{user?.points} points</span>
+          <div className="flex items-center gap-3 mt-1">
+            <div className="flex items-center gap-1">
+              <Award size={13} color={C.gold} />
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.gold }}>{user?.points} points</span>
+            </div>
+            {user?.profilePicture && (
+              <button onClick={handlePictureRemove} disabled={uploadingPic} className="text-xs hover:opacity-60" style={{ color: "#d4183d", fontFamily: "'DM Sans',sans-serif" }}>
+                Remove photo
+              </button>
+            )}
           </div>
         </div>
         <button onClick={() => setEditing(!editing)} className="ml-auto flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-widest"
@@ -312,15 +414,25 @@ export function DashboardProfile() {
       <div className="grid sm:grid-cols-2 gap-5 mb-8">
         {[["Full Name", name, setName], ["Email Address", email, setEmail], ["Phone Number", phone, setPhone]].map(([label, val, set]) => (
           <div key={label as string}>
-            <label style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.2em", textTransform: "uppercase", color: C.muted, display: "block", marginBottom: 6 }}>{label as string}</label>
+            <label style={lbl}>{label as string}</label>
             <input disabled={!editing} value={val as string} onChange={e => (set as any)(e.target.value)} style={{ ...inp, backgroundColor: editing ? "transparent" : "rgba(26,61,43,0.03)", opacity: editing ? 1 : 0.75 }} />
           </div>
         ))}
+        <div>
+          <label style={lbl}>Date of Birth</label>
+          <input type="date" disabled={!editing} value={dob} onChange={e => setDob(e.target.value)} style={{ ...inp, backgroundColor: editing ? "transparent" : "rgba(26,61,43,0.03)", opacity: editing ? 1 : 0.75 }} />
+        </div>
+        <div>
+          <label style={lbl}>Gender</label>
+          <select disabled={!editing} value={gender} onChange={e => setGender(e.target.value)} style={{ ...inp, backgroundColor: editing ? "transparent" : "rgba(26,61,43,0.03)", opacity: editing ? 1 : 0.75 }}>
+            {GENDER_OPTIONS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {editing && (
-        <button onClick={save} className="px-8 py-3 text-sm uppercase tracking-widest mb-8" style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>
-          Save Changes
+        <button onClick={save} disabled={saving} className="px-8 py-3 text-sm uppercase tracking-widest mb-8" style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif", opacity: saving ? 0.6 : 1 }}>
+          {saving ? "Saving..." : "Save Changes"}
         </button>
       )}
 
@@ -329,7 +441,7 @@ export function DashboardProfile() {
         <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", color: C.green, marginBottom: 16 }}>Change Password</h3>
         <div className="grid sm:grid-cols-2 gap-5">
           <div>
-            <label style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.2em", textTransform: "uppercase", color: C.muted, display: "block", marginBottom: 6 }}>Current Password</label>
+            <label style={lbl}>Current Password</label>
             <div className="relative">
               <input type={showPw ? "text" : "password"} value={oldPw} onChange={e => setOldPw(e.target.value)} style={{ ...inp, paddingRight: 36 }} placeholder="••••••••" />
               <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -338,13 +450,13 @@ export function DashboardProfile() {
             </div>
           </div>
           <div>
-            <label style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.2em", textTransform: "uppercase", color: C.muted, display: "block", marginBottom: 6 }}>New Password</label>
+            <label style={lbl}>New Password</label>
             <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} style={inp} placeholder="••••••••" />
           </div>
         </div>
-        <button onClick={() => { toast.success("Password changed!"); setOldPw(""); setNewPw(""); }} className="mt-4 px-6 py-2.5 text-sm uppercase tracking-widest"
-          style={{ backgroundColor: "transparent", border: `1px solid rgba(26,61,43,0.3)`, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
-          Update Password
+        <button onClick={savePassword} disabled={changingPw} className="mt-4 px-6 py-2.5 text-sm uppercase tracking-widest"
+          style={{ backgroundColor: "transparent", border: `1px solid rgba(26,61,43,0.3)`, color: C.green, fontFamily: "'DM Sans',sans-serif", opacity: changingPw ? 0.6 : 1 }}>
+          {changingPw ? "Updating..." : "Update Password"}
         </button>
       </div>
     </div>
@@ -355,8 +467,22 @@ export function DashboardProfile() {
 export function DashboardOrders() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
-  const filters = ["all", "delivered", "shipped", "placed"];
-  const orders = filter === "all" ? MOCK_ORDERS : MOCK_ORDERS.filter(o => o.status === filter);
+  const [allOrders, setAllOrders] = useState<MyOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchMyOrders()
+      .then(setAllOrders)
+      .catch((err: any) => toast.error(err.message || "Failed to load orders"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filters = ["all", "pending", "processing", "packed", "shipped", "delivered", "cancelled"];
+  const orders = filter === "all" ? allOrders : allOrders.filter(o => o.status === filter);
+
+  if (loading) {
+    return <div className="py-16 text-center" style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted }}>Loading your orders...</div>;
+  }
 
   return (
     <div>
@@ -414,9 +540,9 @@ export function DashboardOrders() {
 
 // ─── Wishlist ─────────────────────────────────────────────────────────────────
 export function DashboardWishlist() {
-  const { wishlist, toggleWishlist, addToCart } = useStore();
+  const { wishlist, toggleWishlist, addToCart, products } = useStore();
   const navigate = useNavigate();
-  const wishedProducts = PRODUCTS.filter(p => wishlist.has(p.id));
+  const wishedProducts = products.filter(p => wishlist.has(p.id));
 
   return (
     <div>
@@ -432,8 +558,12 @@ export function DashboardWishlist() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {wishedProducts.map(p => (
             <div key={p.id} className="p-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
-              <div className="aspect-square mb-4 flex items-center justify-center cursor-pointer" style={{ backgroundColor: "#eee8da" }} onClick={() => navigate(`/products/${p.slug}`)}>
-                <span style={{ fontFamily: "'Playfair Display',serif", color: C.muted }}>Arwa Botaniqs</span>
+              <div className="aspect-square mb-4 flex items-center justify-center cursor-pointer overflow-hidden" style={{ backgroundColor: "#eee8da" }} onClick={() => navigate(`/products/${p.slug}`)}>
+                {p.imageUrl ? (
+                  <ImageWithFallback src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span style={{ fontFamily: "'Playfair Display',serif", color: C.muted }}>Arwa Botaniqs</span>
+                )}
               </div>
               <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.95rem", fontWeight: 600, color: C.green }}>{p.name} {p.subtitle}</p>
               <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", fontWeight: 700, color: C.green, marginTop: 4 }}>Rs. {p.price}</p>
@@ -452,29 +582,176 @@ export function DashboardWishlist() {
 }
 
 // ─── Addresses ────────────────────────────────────────────────────────────────
+const EMPTY_ADDRESS_FORM = { label: "Home", name: "", phone: "", address: "", city: "", province: "", postal: "", country: "Pakistan", isDefault: false };
+
+function AddressFormModal({ initial, onClose, onSaved }: { initial: Address | null; onClose: () => void; onSaved: (addr: Address) => void }) {
+  const [form, setForm] = useState(
+    initial
+      ? { label: initial.label, name: initial.name, phone: initial.phone, address: initial.address, city: initial.city, province: initial.province, postal: initial.postal || "", country: initial.country || "Pakistan", isDefault: initial.is_default }
+      : EMPTY_ADDRESS_FORM
+  );
+  const [saving, setSaving] = useState(false);
+
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(f => ({ ...f, [key]: e.target.value }));
+
+  const inp: React.CSSProperties = { width: "100%", padding: "10px 14px", fontSize: "0.88rem", outline: "none", border: `1px solid rgba(26,61,43,0.2)`, backgroundColor: "transparent", color: C.green, fontFamily: "'DM Sans',sans-serif" };
+  const lbl: React.CSSProperties = { fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.2em", textTransform: "uppercase", color: C.muted, display: "block", marginBottom: 6 };
+
+  const handleSave = async () => {
+    if (!form.name || !form.phone || !form.address || !form.city || !form.province || !form.country) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { label: form.label, name: form.name, phone: form.phone, address: form.address, city: form.city, province: form.province, postal: form.postal || null, country: form.country, isDefault: form.isDefault };
+      const saved = initial
+        ? await updateAddressApi(initial.id, payload)
+        : await addAddressApi(payload);
+      onSaved(saved);
+      toast.success(initial ? "Address updated!" : "Address added!");
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save address.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+          className="w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" style={{ backgroundColor: C.ivory }} onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-5">
+            <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.25rem", color: C.green }}>{initial ? "Edit Address" : "Add New Address"}</h3>
+            <button onClick={onClose}><X size={18} color={C.muted} /></button>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label style={lbl}>Label</label>
+              <select value={form.label} onChange={set("label")} style={inp}>
+                <option value="Home">Home</option>
+                <option value="Office">Office</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Full Name</label>
+              <input value={form.name} onChange={set("name")} style={inp} placeholder="Recipient's full name" />
+            </div>
+            <div>
+              <label style={lbl}>Phone Number</label>
+              <input value={form.phone} onChange={set("phone")} style={inp} placeholder="+92 3XX XXXXXXX" />
+            </div>
+            <div>
+              <label style={lbl}>Country</label>
+              <input value={form.country} onChange={set("country")} style={inp} placeholder="Pakistan" />
+            </div>
+            <div className="sm:col-span-2">
+              <label style={lbl}>Full Address</label>
+              <input value={form.address} onChange={set("address")} style={inp} placeholder="House / Street / Area" />
+            </div>
+            <div>
+              <label style={lbl}>City</label>
+              <input value={form.city} onChange={set("city")} style={inp} placeholder="Lahore" />
+            </div>
+            <div>
+              <label style={lbl}>Province / State</label>
+              <input value={form.province} onChange={set("province")} style={inp} placeholder="Punjab" />
+            </div>
+            <div>
+              <label style={lbl}>Postal Code</label>
+              <input value={form.postal} onChange={set("postal")} style={inp} placeholder="54000 (optional)" />
+            </div>
+            <div className="flex items-center gap-2 sm:mt-6">
+              <input type="checkbox" id="isDefault" checked={form.isDefault} onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} />
+              <label htmlFor="isDefault" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.green }}>Set as default address</label>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button onClick={handleSave} disabled={saving} className="flex-1 px-6 py-3 text-sm uppercase tracking-widest"
+              style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif", opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving..." : initial ? "Save Changes" : "Add Address"}
+            </button>
+            <button onClick={onClose} className="px-6 py-3 text-sm uppercase tracking-widest border" style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+              Cancel
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 export function DashboardAddresses() {
-  const [addresses, setAddresses] = useState(MOCK_ADDRESSES);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [loading, setLoading]     = useState(true);
   const [adding, setAdding]       = useState(false);
+  const [editingAddr, setEditingAddr] = useState<Address | null>(null);
+
+  useEffect(() => {
+    fetchAddresses().then(setAddresses).catch(() => toast.error("Failed to load addresses.")).finally(() => setLoading(false));
+  }, []);
+
+  const handleSetDefault = async (id: string) => {
+    try {
+      await setDefaultAddressApi(id);
+      setAddresses(a => a.map(x => ({ ...x, is_default: x.id === id })));
+      toast.success("Default address updated!");
+    } catch { toast.error("Failed to update default address."); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteAddressApi(id);
+      setAddresses(a => a.filter(x => x.id !== id));
+      toast.info("Address removed.");
+    } catch { toast.error("Failed to remove address."); }
+  };
+
+  const handleAdded = (addr: Address) => {
+    setAddresses(a => (addr.is_default ? a.map(x => ({ ...x, is_default: false })) : a).concat(addr));
+  };
+
+  const handleUpdated = (addr: Address) => {
+    setAddresses(a => a.map(x => (x.id === addr.id ? addr : addr.is_default ? { ...x, is_default: false } : x)));
+  };
+
+  if (loading) {
+    return <div style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted, padding: 40, textAlign: "center" }}>Loading addresses...</div>;
+  }
 
   return (
     <div>
       <PageHead title="Saved Addresses" sub="Manage your delivery addresses" />
+
+      {addresses.length === 0 && (
+        <div className="p-8 text-center mb-5" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", color: C.muted }}>You haven't saved any addresses yet.</p>
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-5 mb-5">
         {addresses.map(addr => (
-          <div key={addr.id} className="p-5 relative" style={{ backgroundColor: C.cream, border: `2px solid ${addr.isDefault ? C.gold : "rgba(201,168,76,0.18)"}` }}>
-            {addr.isDefault && <span className="absolute top-3 right-3 px-2 py-0.5 text-[10px] uppercase" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Default</span>}
+          <div key={addr.id} className="p-5 relative" style={{ backgroundColor: C.cream, border: `2px solid ${addr.is_default ? C.gold : "rgba(201,168,76,0.18)"}` }}>
+            {addr.is_default && <span className="absolute top-3 right-3 px-2 py-0.5 text-[10px] uppercase" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Default</span>}
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", letterSpacing: "0.25em", textTransform: "uppercase", color: C.gold, marginBottom: 6 }}>{addr.label}</p>
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", fontWeight: 600, color: C.green }}>{addr.name}</p>
-            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted, lineHeight: 1.6 }}>{addr.address}<br />{addr.city}, {addr.province} {addr.postal}<br />{addr.phone}</p>
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted, lineHeight: 1.6 }}>{addr.address}<br />{addr.city}, {addr.province} {addr.postal}<br />{addr.country}<br />{addr.phone}</p>
             <div className="flex gap-2 mt-4">
-              <button onClick={() => toast.info("Address editor coming soon!")} className="text-xs px-3 py-1.5 border hover:border-[#c9a84c] transition-colors" style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Edit</button>
-              {!addr.isDefault && (
-                <button onClick={() => { setAddresses(a => a.map(x => ({ ...x, isDefault: x.id === addr.id }))); toast.success("Default address updated!"); }}
+              <button onClick={() => setEditingAddr(addr)} className="text-xs px-3 py-1.5 border hover:border-[#c9a84c] transition-colors" style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Edit</button>
+              {!addr.is_default && (
+                <button onClick={() => handleSetDefault(addr.id)}
                   className="text-xs px-3 py-1.5 border hover:border-[#c9a84c] transition-colors" style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
                   Set Default
                 </button>
               )}
-              <button onClick={() => { setAddresses(a => a.filter(x => x.id !== addr.id)); toast.info("Address removed."); }}
+              <button onClick={() => handleDelete(addr.id)}
                 className="ml-auto text-xs hover:opacity-60" style={{ color: "#d4183d", fontFamily: "'DM Sans',sans-serif" }}>Remove</button>
             </div>
           </div>
@@ -485,9 +762,13 @@ export function DashboardAddresses() {
           <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem" }}>Add New Address</span>
         </button>
       </div>
+
+      {adding && <AddressFormModal initial={null} onClose={() => setAdding(false)} onSaved={handleAdded} />}
+      {editingAddr && <AddressFormModal initial={editingAddr} onClose={() => setEditingAddr(null)} onSaved={handleUpdated} />}
     </div>
   );
 }
+
 
 // ─── Payment Methods ──────────────────────────────────────────────────────────
 export function DashboardPayments() {
@@ -779,9 +1060,9 @@ export function DashboardSupport() {
       {/* Contact options */}
       <div className="grid sm:grid-cols-3 gap-4 mb-8">
         {[
-          { icon: "💬", label: "WhatsApp", sub: "+92 314 0628188", action: () => window.open("https://wa.me/923140628188") },
-          { icon: "📧", label: "Email",    sub: "havkeddd@gmail.com", action: () => window.open("mailto:havkeddd@gmail.com") },
-          { icon: "📞", label: "Call Us",  sub: "+92 314 0628188", action: () => window.open("tel:+923140628188") },
+          { icon: "💬", label: "WhatsApp", sub: "+92 304 9067897", action: () => window.open("https://wa.me/923049067897") },
+          { icon: "📧", label: "Email",    sub: "arwabotanicss@gmail.com", action: () => window.open("mailto:arwabotanicss@gmail.com") },
+          { icon: "📞", label: "Call Us",  sub: "+92 304 9067897", action: () => window.open("tel:+923049067897") },
         ].map(({ icon, label, sub, action }) => (
           <button key={label} onClick={action} className="p-5 text-center hover:shadow-md transition-shadow"
             style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>

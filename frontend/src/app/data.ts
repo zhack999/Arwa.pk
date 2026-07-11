@@ -1,4 +1,6 @@
-export type ProductCategory = "soap" | "face-care" | "body-care";
+// Was a fixed union of 3 hardcoded categories; now a real category_id (or
+// legacy slug for the mock entry below) since categories are admin-managed.
+export type ProductCategory = string;
 export type SkinType = "All" | "Oily" | "Dry" | "Combination" | "Sensitive" | "Normal";
 
 export interface IngredientItem {
@@ -32,6 +34,7 @@ export interface Product {
   isBestSeller: boolean;
   isFeatured: boolean;
   slug: string;
+  imageUrl?: string | null; // real Cloudinary image from the backend, if any
 }
 
 export interface Review {
@@ -46,68 +49,11 @@ export interface Review {
   verified: boolean;
 }
 
-export const PRODUCTS: Product[] = [
-  {
-    id: "arwa-beauty-soap-200g",
-    slug: "arwa-beauty-soap-200g",
-    name: "Arwa Botaniqs",
-    subtitle: "Beauty Soap",
-    tagline: "Naturally Beautiful, Inside & Out",
-    description:
-      "Our signature Beauty Soap is formulated with 100% botanical extracts — Neem, Aloe Vera, Tea Tree, Olive Oil, Vitamin E, Honey, and Activated Charcoal — working in harmony to deeply cleanse, brighten, and nourish your skin. Free from parabens, sulphates, and harmful chemicals, this soap is safe for the whole family including babies and sensitive skin types. Experience the difference that pure nature makes with every wash.",
-    price: 549,
-    oldPrice: 1000,
-    discount: 45,
-    weight: "200g",
-    category: "soap",
-    benefits: [
-      "Acne Control",
-      "Skin Brightening",
-      "Oil Control",
-      "Deep Cleansing",
-      "Hydration",
-      "Baby Friendly",
-      "Sensitive Skin",
-    ],
-    skinTypes: ["All", "Oily", "Dry", "Sensitive", "Normal"],
-    ingredients: [
-      { name: "Neem",               emoji: "🌿", desc: "Nature's antibacterial shield — combats acne-causing bacteria and purifies skin." },
-      { name: "Aloe Vera",          emoji: "🌱", desc: "Soothing hydration powerhouse that calms irritation and locks in moisture." },
-      { name: "Olive Extract",      emoji: "🫒", desc: "Ancient skin-nourishing elixir rich in antioxidants and fatty acids." },
-      { name: "Tea Tree",           emoji: "🌲", desc: "Pore-purifying botanical essence that controls breakouts and excess oil." },
-      { name: "Vitamin E",          emoji: "✨", desc: "Antioxidant skin repair complex that evens tone and restores radiance." },
-      { name: "Honey",              emoji: "🍯", desc: "Natural humectant and antibacterial — keeps skin soft and supple all day." },
-      { name: "Activated Charcoal", emoji: "🖤", desc: "Deep-pore detoxifying mineral that draws out impurities and pollutants." },
-      { name: "Botanical Herbs",    emoji: "🌾", desc: "A synergistic blend of botanicals that work together for total skin wellness." },
-    ],
-    howToUse: [
-      "Wet your face or body thoroughly with warm water.",
-      "Lather the soap gently between your palms or directly on skin.",
-      "Massage in circular motions for 30–60 seconds, paying attention to problem areas.",
-      "Rinse thoroughly with clean water.",
-      "Pat skin dry with a soft towel — do not rub.",
-      "Follow with your favourite moisturiser for best results.",
-      "Use twice daily — morning and evening — for optimal results.",
-    ],
-    warnings: [
-      "For external use only. Avoid direct contact with eyes.",
-      "If irritation occurs, discontinue use and consult a dermatologist.",
-      "Keep out of reach of children under 3 years.",
-      "Store in a cool, dry place away from direct sunlight.",
-      "Not for use on open wounds or severely broken skin.",
-    ],
-    shippingInfo:
-      "We deliver across Pakistan within 2–4 business days. Flat shipping rate of Rs. 300 per order, regardless of quantity. Orders dispatched Monday through Sunday.",
-    returnPolicy:
-      "2-day return policy from the date of delivery. If you are not satisfied, contact us within 2 days and we will arrange a hassle-free return.",
-    stock: 50,
-    rating: 4.9,
-    reviewCount: 128,
-    isNew: false,
-    isBestSeller: true,
-    isFeatured: true,
-  },
-];
+// NOTE: the mock PRODUCTS array that used to live here has been removed.
+// Every page now gets real product data from the backend via `useStore()`
+// (see store.tsx -> fetchStorefrontProducts() in api/products.ts). The
+// Product/Review types and the constants below are still used for typing,
+// filters, and the homepage's static testimonial content.
 
 export const REVIEWS: Review[] = [
   {
@@ -179,12 +125,9 @@ export const ALL_BENEFITS = [
 
 export const ALL_SKIN_TYPES: SkinType[] = ["All", "Oily", "Dry", "Combination", "Sensitive", "Normal"];
 export const ALL_WEIGHTS = ["100g", "200g", "300g"];
-export const ALL_CATEGORIES = [
-  { id: "all",       label: "All Products" },
-  { id: "soap",      label: "Botanical Soap" },
-  { id: "face-care", label: "Face Care" },
-  { id: "body-care", label: "Body Care" },
-];
+// NOTE: the hardcoded ALL_CATEGORIES list that used to live here has been
+// removed — Shop.tsx now fetches real, admin-managed categories from
+// GET /api/categories (see api/categories.ts) instead of 3 fixed options.
 
 export const POPULAR_SEARCHES = [
   "Beauty Soap",

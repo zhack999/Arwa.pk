@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from "motion/react";
 import { Toaster, toast } from "sonner";
 import { useStore } from "./store";
 import { BrandLogo, C, LeafSVG, GoldLine } from "./shared";
-import { PRODUCTS, POPULAR_SEARCHES } from "./data";
+import { POPULAR_SEARCHES } from "./data";
+import { ImageWithFallback } from "./components/figma/ImageWithFallback";
 import IntroScreen, { shouldShowIntro } from "./components/IntroScreen";
 import {
-  Menu, X, ShoppingCart, Heart, Search, Phone, Mail, MapPin,
+  Menu, X, Bell, ShoppingCart, Heart, Search, Phone, Mail, MapPin,
   Instagram, Facebook, MessageCircle, Truck, RotateCcw, Shield,
   ChevronDown, Plus, Minus, Trash2, User, LogOut, LayoutDashboard,
   Bot, Zap,
@@ -92,18 +93,19 @@ const NAV_LINKS = [
   { label: "About",    href: "/#brand-story" },
 ];
 
-function Navbar({ scrollY, navTop }: { scrollY: number; navTop: number }) {
+function Navbar({ scrollY, navTop, hidden }: { scrollY: number; navTop: number; hidden: boolean }) {
   const navigate    = useNavigate();
   const location    = useLocation();
-  const { cartCount, wishlistCount, setCartDrawerOpen, setSearchOpen, user, isAuthenticated, logout } = useStore();
+  const { cartCount, wishlistCount, setCartDrawerOpen, setSearchOpen, user, isAuthenticated, logout, notifications, unreadCount, markNotifRead, markAllNotifsRead, deleteNotif } = useStore();
   const [navOpen, setNavOpen]       = useState(false);
   const [userMenu, setUserMenu]     = useState(false);
+  const [notifOpen, setNotifOpen]   = useState(false);
   const scrolled = scrollY > 64 || location.pathname !== "/";
   const light    = !scrolled;
 
   return (
     <nav className="fixed left-0 right-0 z-50 transition-all duration-500"
-      style={{ top: navTop, backgroundColor: scrolled ? C.cream : "rgba(26,61,43,0.97)", backdropFilter: "blur(14px)", boxShadow: scrolled ? "0 1px 24px rgba(0,0,0,0.08)" : "none" }}>
+      style={{ top: navTop, backgroundColor: scrolled ? C.cream : "rgba(26,61,43,0.97)", backdropFilter: "blur(14px)", boxShadow: scrolled ? "0 1px 24px rgba(0,0,0,0.08)" : "none", transform: (hidden && !navOpen && !userMenu) ? "translateY(-100%)" : "translateY(0)", transition: "transform 0.35s ease, background-color 0.5s, box-shadow 0.5s" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between" style={{ height: scrolled ? 64 : 76, transition: "height 0.4s" }}>
         <div onClick={() => navigate("/")} style={{ cursor: "pointer" }}><BrandLogo light={light} compact /></div>
 
@@ -134,6 +136,46 @@ function Navbar({ scrollY, navTop }: { scrollY: number; navTop: number }) {
               <motion.span key={cartCount} initial={{ scale: 0.5 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{cartCount}</motion.span>
             )}
           </button>
+
+          {isAuthenticated && (
+            <div className="relative">
+              <button onClick={() => setNotifOpen(!notifOpen)} className="relative p-2 hover:opacity-60 transition-opacity" aria-label="Notifications">
+                <Bell size={18} color={light ? C.ivory : C.green} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{unreadCount}</span>
+                )}
+              </button>
+              <AnimatePresence>
+                {notifOpen && (
+                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                    className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto z-20"
+                    style={{ backgroundColor: C.cream, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid rgba(201,168,76,0.2)` }}>
+                    <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
+                      <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.9rem", color: C.green, fontWeight: 600 }}>Notifications</p>
+                      {unreadCount > 0 && (
+                        <button onClick={markAllNotifsRead} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", color: C.gold }}>Mark all read</button>
+                      )}
+                    </div>
+                    {notifications.length === 0 ? (
+                      <p className="px-4 py-6 text-center" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted }}>No notifications yet.</p>
+                    ) : (
+                      notifications.map(n => (
+                        <div key={n.id} onClick={() => { markNotifRead(n.id); if (n.link) { navigate(n.link); setNotifOpen(false); } }}
+                          className="px-4 py-3 border-b cursor-pointer hover:bg-[rgba(201,168,76,0.06)] transition-colors flex items-start justify-between gap-2"
+                          style={{ borderColor: "rgba(201,168,76,0.1)", backgroundColor: n.is_read ? "transparent" : "rgba(201,168,76,0.06)" }}>
+                          <div>
+                            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", fontWeight: n.is_read ? 400 : 600, color: C.green }}>{n.title}</p>
+                            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.74rem", color: C.muted, marginTop: 2 }}>{n.message}</p>
+                          </div>
+                          <button onClick={e => { e.stopPropagation(); deleteNotif(n.id); }} style={{ color: C.muted, fontSize: "0.9rem" }}>×</button>
+                        </div>
+                      ))
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
           {/* Auth state */}
           {isAuthenticated && user ? (
@@ -310,7 +352,7 @@ function CartDrawer() {
 
 // ─── Search Overlay ───────────────────────────────────────────────────────────
 function SearchOverlay() {
-  const { searchOpen, setSearchOpen } = useStore();
+  const { searchOpen, setSearchOpen, products } = useStore();
   const [query, setQuery] = useState("");
   const [recent, setRecent] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -319,7 +361,7 @@ function SearchOverlay() {
   useEffect(() => { if (searchOpen) setTimeout(() => inputRef.current?.focus(), 100); }, [searchOpen]);
   useEffect(() => { const s = localStorage.getItem("arwa_searches"); if (s) setRecent(JSON.parse(s)); }, [searchOpen]);
 
-  const results = query.length > 1 ? PRODUCTS.filter(p => `${p.name} ${p.subtitle} ${p.tagline}`.toLowerCase().includes(query.toLowerCase())) : [];
+  const results = query.length > 1 ? products.filter(p => `${p.name} ${p.subtitle} ${p.tagline}`.toLowerCase().includes(query.toLowerCase())) : [];
 
   const doSearch = (q: string) => {
     if (!q.trim()) return;
@@ -353,8 +395,12 @@ function SearchOverlay() {
                 {results.map(p => (
                   <button key={p.id} onClick={() => { setSearchOpen(false); navigate(`/products/${p.slug}`); }}
                     className="w-full flex items-center gap-4 py-3 px-3 hover:bg-white/5 transition-colors text-left">
-                    <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: "rgba(201,168,76,0.15)" }}>
-                      <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.55rem", color: C.gold }}>AB</span>
+                    <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center overflow-hidden" style={{ backgroundColor: "rgba(201,168,76,0.15)" }}>
+                      {p.imageUrl ? (
+                        <ImageWithFallback src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.55rem", color: C.gold }}>AB</span>
+                      )}
                     </div>
                     <div>
                       <p style={{ fontFamily: "'Playfair Display',serif", color: C.ivory, fontSize: "0.95rem" }}>{p.name} {p.subtitle}</p>
@@ -401,9 +447,9 @@ function SearchOverlay() {
 
 // ─── Quick View Modal ─────────────────────────────────────────────────────────
 function QuickViewModal() {
-  const { quickViewId, setQuickViewId, addToCart, wishlist, toggleWishlist } = useStore();
+  const { quickViewId, setQuickViewId, addToCart, wishlist, toggleWishlist, products } = useStore();
   const navigate = useNavigate();
-  const product = PRODUCTS.find(p => p.id === quickViewId);
+  const product = products.find(p => p.id === quickViewId);
   return (
     <AnimatePresence>
       {product && (
@@ -414,8 +460,12 @@ function QuickViewModal() {
             style={{ backgroundColor: C.cream, maxHeight: "90vh" }}>
             <button onClick={() => setQuickViewId(null)} className="absolute top-4 right-4"><X size={20} color={C.green} /></button>
             <div className="grid sm:grid-cols-2 gap-6">
-              <div className="aspect-square flex items-center justify-center" style={{ backgroundColor: "#eee8da" }}>
-                <span style={{ fontFamily: "'Playfair Display',serif", color: C.muted }}>Arwa Botaniqs</span>
+              <div className="aspect-square flex items-center justify-center overflow-hidden" style={{ backgroundColor: "#eee8da" }}>
+                {product.imageUrl ? (
+                  <ImageWithFallback src={product.imageUrl} alt={`${product.name} ${product.subtitle}`} className="w-full h-full object-cover" />
+                ) : (
+                  <span style={{ fontFamily: "'Playfair Display',serif", color: C.muted }}>Arwa Botaniqs</span>
+                )}
               </div>
               <div>
                 <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.5rem", fontWeight: 700, color: C.green }}>{product.name}<br /><span style={{ fontStyle: "italic", color: C.olive }}>{product.subtitle}</span></h3>
@@ -457,10 +507,11 @@ function CookieBanner({ onAccept }: { onAccept: () => void }) {
 function NewsletterPopup({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
+  const dismiss = () => { localStorage.setItem("arwa_newsletter_seen", "1"); onClose(); };
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.62)", backdropFilter: "blur(4px)" }}>
       <motion.div initial={{ opacity: 0, scale: 0.88 }} animate={{ opacity: 1, scale: 1 }} className="relative w-full max-w-sm p-8" style={{ backgroundColor: C.green, border: `1px solid rgba(201,168,76,0.28)` }}>
-        <button onClick={onClose} className="absolute top-4 right-4 hover:opacity-60"><X size={18} color="rgba(245,240,232,0.4)" /></button>
+        <button onClick={dismiss} className="absolute top-4 right-4 hover:opacity-60"><X size={18} color="rgba(245,240,232,0.4)" /></button>
         <div className="text-center">
           <BrandLogo light compact />
           <h3 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.55rem", fontWeight: 700, color: C.ivory, marginTop: "1.5rem", marginBottom: "0.5rem" }}>Exclusive Welcome Offer</h3>
@@ -473,14 +524,14 @@ function NewsletterPopup({ onClose }: { onClose: () => void }) {
               <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.ivory }}>You are in! Welcome to Arwa Botaniqs.</p>
             </div>
           ) : (
-            <form onSubmit={e => { e.preventDefault(); if (email) { setDone(true); toast.success("Welcome to the Arwa Botaniqs family!"); } }}>
+            <form onSubmit={e => { e.preventDefault(); if (email) { setDone(true); localStorage.setItem("arwa_newsletter_seen", "1"); toast.success("Welcome to the Arwa Botaniqs family!"); } }}>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Your email address" required
                 className="w-full px-4 py-3 mb-3 text-sm outline-none"
                 style={{ backgroundColor: "rgba(245,240,232,0.08)", border: `1px solid rgba(201,168,76,0.22)`, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }} />
               <button type="submit" className="w-full py-3 text-sm font-medium" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>Subscribe</button>
             </form>
           )}
-          <button onClick={onClose} className="mt-4 text-xs hover:opacity-50" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.3)" }}>No thanks</button>
+          <button onClick={dismiss} className="mt-4 text-xs hover:opacity-50" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.3)" }}>No thanks</button>
         </div>
       </motion.div>
     </motion.div>
@@ -503,7 +554,7 @@ function Footer() {
               {[Instagram, Facebook].map((Icon, i) => (
                 <a key={i} href="#" aria-label="Social" className="w-9 h-9 flex items-center justify-center border transition-all hover:border-[#c9a84c]" style={{ borderColor: "rgba(201,168,76,0.18)" }}><Icon size={15} color={C.gold} /></a>
               ))}
-              <a href="https://wa.me/923140628188" target="_blank" rel="noopener noreferrer" className="w-9 h-9 flex items-center justify-center border transition-all hover:border-[#c9a84c]" style={{ borderColor: "rgba(201,168,76,0.18)" }}><MessageCircle size={15} color={C.gold} /></a>
+              <a href="https://wa.me/923049067897" target="_blank" rel="noopener noreferrer" className="w-9 h-9 flex items-center justify-center border transition-all hover:border-[#c9a84c]" style={{ borderColor: "rgba(201,168,76,0.18)" }}><MessageCircle size={15} color={C.gold} /></a>
             </div>
           </div>
           <div>
@@ -516,8 +567,8 @@ function Footer() {
           <div>
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.68rem", letterSpacing: "0.3em", textTransform: "uppercase", color: C.gold, marginBottom: 16 }}>Contact Us</p>
             <div className="space-y-3.5">
-              <a href="tel:+923140628188" className="flex items-center gap-3 group"><Phone size={13} color={C.gold} /><span className="transition-colors group-hover:text-[#c9a84c]" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)" }}>+92 314 0628188</span></a>
-              <a href="mailto:havkeddd@gmail.com" className="flex items-center gap-3 group"><Mail size={13} color={C.gold} /><span className="transition-colors group-hover:text-[#c9a84c]" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)" }}>havkeddd@gmail.com</span></a>
+              <a href="tel:+923049067897" className="flex items-center gap-3 group"><Phone size={13} color={C.gold} /><span className="transition-colors group-hover:text-[#c9a84c]" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)" }}>+92 304 9067897</span></a>
+              <a href="mailto:arwabotanicss@gmail.com" className="flex items-center gap-3 group"><Mail size={13} color={C.gold} /><span className="transition-colors group-hover:text-[#c9a84c]" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)" }}>arwabotanicss@gmail.com</span></a>
               <div className="flex items-center gap-3"><MapPin size={13} color={C.gold} /><span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)" }}>Faisalabad, Pakistan</span></div>
             </div>
           </div>
@@ -553,23 +604,65 @@ function Footer() {
 export default function Root() {
   const [loading,        setLoading]        = useState(true);
   const [scrollY,        setScrollY]        = useState(0);
+  const [navHidden,      setNavHidden]      = useState(true);
   const [showBanner,     setShowBanner]     = useState(true);
-  const [showCookie,     setShowCookie]     = useState(true);
+  const [showCookie,     setShowCookie]     = useState(false);
   const [showNewsletter, setShowNewsletter] = useState(false);
   const [showIntro,      setShowIntro]      = useState(() => shouldShowIntro());
   const location = useLocation();
   const navigate = useNavigate();
+  const lastScrollY = useRef(0);
+  const scrollAccum = useRef(0);
+  const scrollDir   = useRef<"up" | "down" | null>(null);
 
   const BANNER_H = showBanner ? 40 : 0;
 
   useEffect(() => { const t = setTimeout(() => setLoading(false), 1800); return () => clearTimeout(t); }, []);
-  useEffect(() => { const t = setTimeout(() => setShowNewsletter(true), 10000); return () => clearTimeout(t); }, []);
   useEffect(() => {
-    const fn = () => setScrollY(window.scrollY);
+    if (localStorage.getItem("arwa_newsletter_seen")) return;
+    const t = setTimeout(() => setShowNewsletter(true), 10000);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (localStorage.getItem("arwa_cookie_consent") === "accepted") return;
+    const t = setTimeout(() => setShowCookie(true), 120000); // show once, ~2 minutes in
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    const REVEAL_THRESHOLD = 40; // px of sustained upward scroll needed before the navbar reappears
+    const fn = () => {
+      const y = window.scrollY;
+      setScrollY(y);
+
+      const delta = y - lastScrollY.current;
+      lastScrollY.current = y;
+
+      // Ignore tiny jitters (trackpad momentum, wheel micro-reversals)
+      if (Math.abs(delta) < 2) return;
+
+      const dir = delta > 0 ? "down" : "up";
+      if (dir !== scrollDir.current) {
+        scrollDir.current = dir;
+        scrollAccum.current = 0;
+      }
+      scrollAccum.current += Math.abs(delta);
+
+      if (dir === "down") {
+        setNavHidden(true);
+      } else if (dir === "up" && scrollAccum.current > REVEAL_THRESHOLD) {
+        setNavHidden(false);
+      }
+    };
     window.addEventListener("scroll", fn, { passive: true });
     return () => window.removeEventListener("scroll", fn);
   }, []);
-  useEffect(() => { window.scrollTo(0, 0); }, [location.pathname]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    setNavHidden(true);
+    lastScrollY.current = 0;
+    scrollAccum.current = 0;
+    scrollDir.current = null;
+  }, [location.pathname]);
 
   if (loading) return <PremiumLoader />;
 
@@ -589,7 +682,7 @@ export default function Root() {
       </div>
 
       <ScrollProgress y={scrollY} top={BANNER_H + 2} />
-      <Navbar scrollY={scrollY} navTop={BANNER_H} />
+      <Navbar scrollY={scrollY} navTop={BANNER_H} hidden={navHidden} />
 
       {/* Page transitions */}
       <AnimatePresence mode="wait">
@@ -601,7 +694,7 @@ export default function Root() {
       {!hideFooter && <Footer />}
 
       {/* Floating buttons */}
-      <a href="https://wa.me/923140628188" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"
+      <a href="https://wa.me/923049067897" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"
         className="fixed bottom-20 right-5 z-40 w-12 h-12 rounded-full flex items-center justify-center hover:scale-110 transition-transform"
         style={{ backgroundColor: "#25D366", animation: "waPulse 2.5s ease-in-out infinite" }}>
         <MessageCircle size={22} color="white" fill="white" />
@@ -633,7 +726,7 @@ export default function Root() {
       <SearchOverlay />
       <QuickViewModal />
 
-      {showCookie && <CookieBanner onAccept={() => setShowCookie(false)} />}
+      {showCookie && <CookieBanner onAccept={() => { localStorage.setItem("arwa_cookie_consent", "accepted"); setShowCookie(false); }} />}
       <AnimatePresence>{showNewsletter && !showCookie && <NewsletterPopup onClose={() => setShowNewsletter(false)} />}</AnimatePresence>
 
       <Toaster position="top-right" toastOptions={{ style: { fontFamily: "'DM Sans',sans-serif", borderRadius: 0, border: `1px solid rgba(201,168,76,0.3)` } }} />

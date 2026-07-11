@@ -1,0 +1,13 @@
+﻿{
+  "customer_name": "Ali Khan",
+  "customer_email": "ali@test.com",
+  "customer_phone": "03001234567",
+  "shipping_address": "House 12, Street 5",
+  "shipping_city": "Lahore",
+  "shipping_province": "Punjab",
+  "payment_method": "cod",
+  "shipping_fee": 200,
+  "items": [
+    { "product_id": "9755fede-3f03-46c3-95f6-60004aa80342", "quantity": 2 }
+  ]
+}

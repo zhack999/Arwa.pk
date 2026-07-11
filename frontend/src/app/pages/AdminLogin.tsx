@@ -4,9 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useStore } from "../store";
 import { LeafSVG, BrandLogo } from "../shared";
 import { Eye, EyeOff, Lock, Mail, Shield, AlertCircle } from "lucide-react";
-
-const ADMIN_EMAIL = "admin@arwabotaniqs.com";
-const ADMIN_PASS  = "admin123";
+import { API_URL } from "../config";
 
 const A = {
   bg:     "#0b1a12",
@@ -25,15 +23,39 @@ const inp: React.CSSProperties = {
 };
 
 // ─── Lock Screen (session timeout) ────────────────────────────────────────────
+// Instead of checking a hardcoded password, this now re-checks the entered
+// password against the real backend, using the currently logged-in admin's email.
 export function AdminLockScreen({ onUnlock }: { onUnlock: () => void }) {
-  const [pass, setPass] = useState("");
-  const [show, setShow] = useState(false);
-  const [err,  setErr]  = useState(false);
+  const { admin } = useStore();
+  const [pass, setPass]       = useState("");
+  const [show, setShow]       = useState(false);
+  const [err,  setErr]        = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const unlock = (e: React.FormEvent) => {
+  const unlock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pass === ADMIN_PASS) { onUnlock(); setPass(""); setErr(false); }
-    else { setErr(true); setTimeout(() => setErr(false), 2000); }
+    if (!admin) { setErr(true); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: admin.email, password: pass }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        onUnlock();
+        setPass("");
+        setErr(false);
+      } else {
+        setErr(true);
+        setTimeout(() => setErr(false), 2000);
+      }
+    } catch {
+      setErr(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -55,7 +77,9 @@ export function AdminLockScreen({ onUnlock }: { onUnlock: () => void }) {
             </button>
           </div>
           {err && <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.75rem", color: "#ef4444", marginBottom: 8 }}>Incorrect password</p>}
-          <button type="submit" className="w-full py-3 text-sm uppercase tracking-widest" style={{ backgroundColor: A.gold, color: A.green, fontFamily: "'DM Sans',sans-serif" }}>Unlock</button>
+          <button type="submit" disabled={loading} className="w-full py-3 text-sm uppercase tracking-widest" style={{ backgroundColor: A.gold, color: A.green, fontFamily: "'DM Sans',sans-serif", opacity: loading ? 0.7 : 1 }}>
+            {loading ? "Checking..." : "Unlock"}
+          </button>
         </form>
       </div>
     </motion.div>
@@ -75,18 +99,22 @@ export default function AdminLogin() {
 
   useEffect(() => { if (isAdmin) navigate("/admin"); }, [isAdmin]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (email !== ADMIN_EMAIL || pass !== ADMIN_PASS) {
-      setError("Invalid admin credentials. Check the hint below.");
-      return;
-    }
     setLoading(true);
-    setTimeout(() => {
-      adminLogin();
-      navigate("/admin");
-    }, 1000);
+    try {
+      const success = await adminLogin(email, pass);
+      if (success) {
+        navigate("/admin");
+      } else {
+        setError("Invalid admin credentials.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -146,7 +174,7 @@ export default function AdminLogin() {
                 <label style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(201,168,76,0.75)", display: "block", marginBottom: 6 }}>Admin Email</label>
                 <div className="relative">
                   <Mail size={14} color="rgba(201,168,76,0.45)" className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@arwabotaniqs.com" style={inp} required />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inp} required />
                 </div>
               </div>
 
@@ -190,13 +218,6 @@ export default function AdminLogin() {
                 {loading ? "Authenticating..." : "Login to Admin Panel"}
               </button>
             </form>
-
-            {/* Demo credentials hint */}
-            <div className="mt-5 p-3" style={{ backgroundColor: "rgba(201,168,76,0.06)", border: "1px solid rgba(201,168,76,0.15)" }}>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", letterSpacing: "0.15em", textTransform: "uppercase", color: A.gold, marginBottom: 4 }}>Demo Credentials</p>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: A.muted }}>Email: <span style={{ color: A.ivory }}>{ADMIN_EMAIL}</span></p>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: A.muted }}>Password: <span style={{ color: A.ivory }}>{ADMIN_PASS}</span></p>
-            </div>
 
             <a href="/" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: "rgba(245,240,232,0.3)", display: "block", textAlign: "center", marginTop: 16, textDecoration: "none", letterSpacing: "0.1em" }}
               className="hover:text-[#c9a84c] transition-colors">← Back to Customer Site</a>

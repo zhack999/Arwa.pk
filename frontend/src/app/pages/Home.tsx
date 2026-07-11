@@ -5,7 +5,7 @@ import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import productImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.47.16_PM.jpeg";
 import logoImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.46.54_PM.jpeg";
 import { useStore } from "../store";
-import { PRODUCTS, REVIEWS } from "../data";
+import { REVIEWS } from "../data";
 import { C, FadeIn, SectionHeading, SectionTag, GoldLine, LeafSVG, StarRating } from "../shared";
 import {
   Leaf, Star, ShoppingCart, ArrowRight, ChevronDown, Truck,
@@ -73,11 +73,21 @@ function Hero() {
 
 // ─── Featured Product ─────────────────────────────────────────────────────────
 function FeaturedProduct() {
-  const { addToCart, toggleWishlist, wishlist } = useStore();
+  const { addToCart, toggleWishlist, wishlist, products, productsLoading } = useStore();
   const navigate = useNavigate();
-  const product = PRODUCTS[0];
+  // Prefer an admin-marked featured product, then a best seller, then just the first one.
+  const product = products.find(p => p.isFeatured) || products.find(p => p.isBestSeller) || products[0];
   const [qty, setQty] = useState(1);
-  const inWishlist = wishlist.has(product.id);
+  const inWishlist = product ? wishlist.has(product.id) : false;
+
+  if (!productsLoading && !product) return null; // nothing in the catalog yet — skip this section
+  if (!product) {
+    return (
+      <section className="py-24" style={{ backgroundColor: C.ivory }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center" style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted }}>Loading…</div>
+      </section>
+    );
+  }
 
   return (
     <section className="py-24 overflow-hidden" style={{ backgroundColor: C.ivory }}>
@@ -88,7 +98,7 @@ function FeaturedProduct() {
           <FadeIn delay={0.1}>
             <div className="relative">
               <div className="absolute top-4 left-4 z-10 w-16 h-16 rounded-full flex flex-col items-center justify-center" style={{ backgroundColor: C.gold }}>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", fontWeight: 700, color: C.green, lineHeight: 1 }}>45%</span>
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", fontWeight: 700, color: C.green, lineHeight: 1 }}>{product.discount}%</span>
                 <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.65rem", color: C.green }}>OFF</span>
               </div>
               <div className="overflow-hidden cursor-pointer" style={{ aspectRatio: "4/5" }} onClick={() => navigate(`/products/${product.slug}`)}>
@@ -115,7 +125,9 @@ function FeaturedProduct() {
               <div className="flex items-baseline gap-4 mb-5">
                 <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "2.6rem", fontWeight: 700, color: C.green }}>Rs. {product.price.toLocaleString()}</span>
                 <span className="line-through" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "1.2rem", color: "#aabba9" }}>Rs. {product.oldPrice.toLocaleString()}</span>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", fontWeight: 600, backgroundColor: C.gold, color: C.green, padding: "2px 8px" }}>Save Rs. 451</span>
+                {product.oldPrice > product.price && (
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", fontWeight: 600, backgroundColor: C.gold, color: C.green, padding: "2px 8px" }}>Save Rs. {(product.oldPrice - product.price).toLocaleString()}</span>
+                )}
               </div>
               <p className="mb-7" style={{ fontFamily: "'DM Sans',sans-serif", color: "#4a5a4a", lineHeight: 1.84, fontSize: "0.95rem" }}>
                 {product.description.slice(0, 200)}...
@@ -207,7 +219,9 @@ function WhyChooseArwa() {
 
 // ─── Ingredient Showcase ──────────────────────────────────────────────────────
 function IngredientShowcase() {
-  const product = PRODUCTS[0];
+  const { products } = useStore();
+  const product = products.find(p => p.isFeatured) || products.find(p => p.isBestSeller) || products[0];
+  if (!product || product.ingredients.length === 0) return null;
   return (
     <section className="py-24" style={{ backgroundColor: C.ivory }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useStore } from "../store";
+import { placeOrder } from "../api/checkout";
+import { createStripeCheckoutSession } from "../api/payments";
+import { fetchProductStockBySlug } from "../api/products";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { C, FadeIn, StarRating } from "../shared";
-import { ChevronRight, Check, Truck, Shield, RotateCcw, Tag } from "lucide-react";
+import { ChevronRight, Check, Truck, Shield, RotateCcw, Tag, Lock } from "lucide-react";
 
 const PROVINCES = ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Balochistan", "Islamabad (ICT)", "Azad Kashmir (AJK)", "Gilgit-Baltistan"];
 const SHIPPING  = 300;
@@ -125,24 +129,23 @@ function Step1({ info, setInfo, onNext }: { info: CustomerInfo; setInfo: (i: Cus
 }
 
 // ─── Step 2: Payment ──────────────────────────────────────────────────────────
-const PAY_METHODS: { id: PayMethod; label: string; desc: string; icon: string }[] = [
-  { id: "cod",       label: "Cash on Delivery", desc: "Pay in cash when your order arrives.",      icon: "💵" },
-  { id: "jazzcash",  label: "JazzCash",          desc: "Pay instantly with your JazzCash account.", icon: "📱" },
-  { id: "easypaisa", label: "EasyPaisa",         desc: "Pay via EasyPaisa mobile account.",         icon: "🟢" },
-  { id: "card",      label: "Debit / Credit Card", desc: "Visa, Mastercard, and all major cards.",  icon: "💳" },
+// jazzcash/easypaisa scaffolds exist on the backend but need real merchant
+// credentials before they can go live — disabled in the UI until then.
+const PAY_METHODS: { id: PayMethod; label: string; desc: string; icon: string; available: boolean }[] = [
+  { id: "cod",       label: "Cash on Delivery",    desc: "Pay in cash when your order arrives.",      icon: "💵", available: true },
+  { id: "card",      label: "Debit / Credit Card", desc: "Pay securely via Stripe — Visa, Mastercard, and all major cards.", icon: "💳", available: true },
+  { id: "jazzcash",  label: "JazzCash",             desc: "Coming soon.",                              icon: "📱", available: false },
+  { id: "easypaisa", label: "EasyPaisa",            desc: "Coming soon.",                              icon: "🟢", available: false },
 ];
 
-function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc, cartTotal, onBack, onPlace }: {
+function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc, cartTotal, onBack, onPlace, placing, blocked }: {
   method: PayMethod; setMethod: (m: PayMethod) => void;
   coupon: string; setCoupon: (c: string) => void;
   couponDisc: number; setCouponDisc: (d: number) => void;
-  cartTotal: number; onBack: () => void; onPlace: () => void;
+  cartTotal: number; onBack: () => void; onPlace: () => void; placing: boolean; blocked?: boolean;
 }) {
   const [couponInput, setCouponInput] = useState("");
   const [terms, setTerms]             = useState(false);
-  const [cardNum,  setCardNum]        = useState("");
-  const [cardExp,  setCardExp]        = useState("");
-  const [cardCvv,  setCardCvv]        = useState("");
 
   const discAmt    = Math.round(cartTotal * (couponDisc / 100));
   const grandTotal = cartTotal - discAmt + SHIPPING;
@@ -165,9 +168,16 @@ function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc
         <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, marginBottom: 12 }}>Payment Method</p>
         <div className="space-y-3">
           {PAY_METHODS.map(m => (
-            <label key={m.id} className="flex items-start gap-3 p-4 cursor-pointer transition-all"
-              style={{ border: `1.5px solid ${method === m.id ? C.gold : "rgba(26,61,43,0.18)"}`, backgroundColor: method === m.id ? "rgba(201,168,76,0.06)" : "transparent" }}>
-              <input type="radio" name="payment" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="sr-only" />
+            <label key={m.id}
+              className="flex items-start gap-3 p-4 transition-all"
+              style={{
+                border: `1.5px solid ${method === m.id ? C.gold : "rgba(26,61,43,0.18)"}`,
+                backgroundColor: method === m.id ? "rgba(201,168,76,0.06)" : "transparent",
+                cursor: m.available ? "pointer" : "not-allowed",
+                opacity: m.available ? 1 : 0.5,
+              }}>
+              <input type="radio" name="payment" value={m.id} checked={method === m.id} disabled={!m.available}
+                onChange={() => m.available && setMethod(m.id)} className="sr-only" />
               <div className="flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5"
                 style={{ borderColor: method === m.id ? C.gold : "rgba(26,61,43,0.3)" }}>
                 {method === m.id && <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: C.gold }} />}
@@ -176,6 +186,11 @@ function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc
                 <div className="flex items-center gap-2">
                   <span className="text-xl">{m.icon}</span>
                   <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", fontWeight: 600, color: C.green }}>{m.label}</span>
+                  {!m.available && (
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, border: "1px solid rgba(26,61,43,0.25)", padding: "2px 6px" }}>
+                      Coming Soon
+                    </span>
+                  )}
                 </div>
                 <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 2 }}>{m.desc}</p>
               </div>
@@ -184,21 +199,14 @@ function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc
         </div>
       </div>
 
-      {/* Card fields */}
+      {/* Stripe redirect notice — real card entry happens on Stripe's hosted page, not here */}
       {method === "card" && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-4 p-4"
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="flex items-start gap-3 p-4"
           style={{ backgroundColor: "rgba(201,168,76,0.05)", border: `1px solid rgba(201,168,76,0.2)` }}>
-          <Field label="Card Number" required>
-            <input style={inputStyle} value={cardNum} onChange={e => setCardNum(e.target.value.replace(/\D/g, "").slice(0, 16))} placeholder="1234 5678 9012 3456" />
-          </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Expiry" required>
-              <input style={inputStyle} value={cardExp} onChange={e => setCardExp(e.target.value)} placeholder="MM/YY" />
-            </Field>
-            <Field label="CVV" required>
-              <input style={inputStyle} value={cardCvv} onChange={e => setCardCvv(e.target.value.slice(0, 3))} placeholder="•••" type="password" />
-            </Field>
-          </div>
+          <Lock size={16} color={C.gold} className="flex-shrink-0 mt-0.5" />
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.muted, lineHeight: 1.6 }}>
+            You'll be redirected to Stripe's secure checkout page to enter your card details and complete payment.
+          </p>
         </motion.div>
       )}
 
@@ -248,16 +256,18 @@ function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc
           style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
           ← Back
         </button>
-        <button onClick={handlePlace} className="group flex-1 py-3.5 text-sm font-medium uppercase tracking-widest flex items-center justify-center gap-2"
-          style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
-          Place Order <ChevronRight size={15} className="transition-transform group-hover:translate-x-1" />
+        <button onClick={handlePlace} disabled={placing || blocked} className="group flex-1 py-3.5 text-sm font-medium uppercase tracking-widest flex items-center justify-center gap-2"
+          style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif", opacity: (placing || blocked) ? 0.5 : 1 }}>
+          {placing
+            ? (method === "card" ? "Redirecting to Stripe..." : "Placing Order...")
+            : blocked ? "Cart Needs Review" : <>{method === "card" ? "Proceed to Payment" : "Place Order"} <ChevronRight size={15} className="transition-transform group-hover:translate-x-1" /></>}
         </button>
       </div>
     </div>
   );
 }
 
-// ─── Step 3: Success ──────────────────────────────────────────────────────────
+// ─── Step 3: Success (Cash on Delivery only — Stripe orders land on /order-success instead) ──
 function Success({ info, orderId }: { info: CustomerInfo; orderId: string }) {
   const navigate = useNavigate();
   return (
@@ -301,7 +311,7 @@ function Success({ info, orderId }: { info: CustomerInfo; orderId: string }) {
       </div>
 
       <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.muted, marginBottom: 24 }}>
-        Questions? Contact us on WhatsApp: <a href="https://wa.me/923140628188" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }}>+92 314 0628188</a>
+        Questions? Contact us on WhatsApp: <a href="https://wa.me/923049067897" target="_blank" rel="noopener noreferrer" style={{ color: C.gold }}>+92 304 9067897</a>
       </p>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -325,12 +335,31 @@ export default function Checkout() {
 
   const [step, setStep]       = useState(0);
   const [orderId, setOrderId] = useState("");
+  const [placing, setPlacing] = useState(false);
   const [coupon,     setCoupon]     = useState("");
   const [couponDisc, setCouponDisc] = useState(0);
   const [payMethod, setPayMethod]   = useState<PayMethod>("cod");
   const [info, setInfo]             = useState<CustomerInfo>({
     fullName: "", phone: "", email: "", province: "", city: "", address: "", postal: "", notes: "",
   });
+
+  const [stockIssues, setStockIssues] = useState<Record<string, number>>({}); // productId -> available qty
+  const [checkingStock, setCheckingStock] = useState(false);
+
+  useEffect(() => {
+    if (cart.length === 0) return;
+    let cancelled = false;
+    setCheckingStock(true);
+    (async () => {
+      const issues: Record<string, number> = {};
+      for (const item of cart) {
+        const live = await fetchProductStockBySlug(item.product.slug);
+        if (!live || live.stock < item.qty) issues[item.product.id] = live?.stock ?? 0;
+      }
+      if (!cancelled) { setStockIssues(issues); setCheckingStock(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [cart]);
 
   if (cart.length === 0 && step < 2) {
     return (
@@ -345,12 +374,55 @@ export default function Checkout() {
   const discAmt    = Math.round(cartTotal * (couponDisc / 100));
   const grandTotal = cartTotal - discAmt + SHIPPING;
 
-  const handlePlaceOrder = () => {
-    const id = `ARW-${Date.now().toString().slice(-6)}`;
-    setOrderId(id);
-    clearCart();
-    setStep(2);
-    toast.success("Order placed successfully!");
+  const handlePlaceOrder = async () => {
+    setPlacing(true);
+    try {
+      const result = await placeOrder({
+        customer_name: info.fullName,
+        customer_email: info.email || "guest@arwabotanicss.com",
+        customer_phone: info.phone,
+        shipping_address: info.address,
+        shipping_city: info.city,
+        shipping_province: info.province,
+        shipping_postal: info.postal,
+        payment_method: payMethod,
+        shipping_fee: SHIPPING,
+        discount: discAmt,
+        notes: info.notes,
+        items: cart.map(item => ({ product_id: item.product.id, quantity: item.qty })),
+      } as any);
+
+      if (payMethod === "card") {
+        // Order now exists as "pending" in the backend. Send the customer to Stripe —
+        // do NOT clear the cart or advance the step here. The cart only clears once
+        // /order-success confirms the payment actually went through; if the customer
+        // cancels, /order-cancel needs the cart still intact.
+        const url = await createStripeCheckoutSession(result.id);
+        window.location.href = url;
+        return;
+      }
+
+      // Cash on Delivery — unchanged from before.
+      setOrderId(result.order_number);
+      clearCart();
+      setStep(2);
+      toast.success("Order placed successfully!");
+    } catch (error: any) {
+      const msg = error.message || "Failed to place order. Please try again.";
+      const isStockIssue = /stock|not found|unavailable/i.test(msg);
+      if (isStockIssue) {
+        toast.error("Some items in your cart are no longer available", {
+          description: msg,
+          duration: 6000,
+          action: { label: "Review Cart", onClick: () => navigate("/cart") },
+        });
+      } else {
+        toast.error(msg);
+      }
+      setPlacing(false);
+    }
+    // Note: no `finally` resetting `placing` on the Stripe path — the page is
+    // navigating away, so there's nothing left to re-enable.
   };
 
   return (
@@ -382,7 +454,7 @@ export default function Checkout() {
                 {step === 0 && (
                   <Step1 info={info} setInfo={setInfo} onNext={() => setStep(1)} />
                 )}
-                {step === 1 && (
+               {step === 1 && (
                   <Step2
                     method={payMethod} setMethod={setPayMethod}
                     coupon={coupon} setCoupon={setCoupon}
@@ -390,6 +462,8 @@ export default function Checkout() {
                     cartTotal={cartTotal}
                     onBack={() => setStep(0)}
                     onPlace={handlePlaceOrder}
+                    placing={placing}
+                    blocked={checkingStock || Object.keys(stockIssues).length > 0}
                   />
                 )}
               </div>
@@ -401,12 +475,21 @@ export default function Checkout() {
                   <div className="space-y-3 mb-5">
                     {cart.map(item => (
                       <div key={item.product.id} className="flex items-center gap-3">
-                        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center text-center" style={{ backgroundColor: "#eee8da" }}>
-                          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.45rem", color: C.muted }}>Arwa Botaniqs</span>
+                        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center text-center overflow-hidden" style={{ backgroundColor: "#eee8da" }}>
+                          {item.product.imageUrl ? (
+                            <ImageWithFallback src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.45rem", color: C.muted }}>Arwa Botaniqs</span>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem", color: C.green, fontWeight: 600 }}>{item.product.name} {item.product.subtitle}</p>
                           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>Qty: {item.qty} · {item.product.weight}</p>
+                          {item.product.id in stockIssues && (
+                            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: "#d4183d", marginTop: 2 }}>
+                              {stockIssues[item.product.id] === 0 ? "Out of stock" : `Only ${stockIssues[item.product.id]} left`} — please update your cart
+                            </p>
+                          )}
                         </div>
                         <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: C.green, flexShrink: 0 }}>Rs. {(item.product.price * item.qty).toLocaleString()}</span>
                       </div>
