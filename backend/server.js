@@ -100,21 +100,20 @@ app.use(globalErrorHandler);
 // Database Connection
 // ==========================
 
-pool.connect()
-    .then(() => {
-        console.log("✅ PostgreSQL Connected");
-    })
-    .catch((err) => {
-        console.error("❌ Database Error:", err.message);
-        process.exit(1); // don't run a server that can't reach its database
-    });
-
-// ==========================
-// Start Server
-// ==========================
-
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-    console.log(`✅ Server running on http://localhost:${PORT}`);
-});
+async function startServer() {
+  try {
+    await pool.query("SELECT 1");
+    console.log("✅ PostgreSQL Connected");
+
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error("❌ Database Error:", err);
+    process.exit(1);
+  }
+}
+
+startServer();
