@@ -1,12 +1,13 @@
 import rateLimit from "express-rate-limit";
 
-// Tight limit for login/register — the classic brute-force target
+// Loosened for active testing — still limited, just not painfully so.
+// Tighten this back down (e.g. max: 10) before real public launch.
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 10,
+  windowMs: 5 * 60 * 1000, // 5 min
+  max: 50,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, message: "Too many attempts. Please try again in 15 minutes." },
+  message: { success: false, message: "Too many attempts. Please try again in a few minutes." },
 });
 
 // Looser limit for general write operations (orders, reviews, cart)
