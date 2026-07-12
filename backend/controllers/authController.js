@@ -50,8 +50,8 @@ export const adminLogin = async (req, res) => {
         // Store the token in a secure cookie the browser manages automatically
         res.cookie("adminToken", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: true, // required when sameSite is "none" — cross-site cookies must be HTTPS-only
+            sameSite: "none", // frontend (Vercel) and backend (Render) are different domains
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         });
 
