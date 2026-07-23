@@ -5,6 +5,7 @@ export interface TrackedOrder {
   date: string;
   status: string;         // raw order_status
   statusLabel: string;
+  paymentStatus: string;  // 'unpaid' | 'paid' | 'refunded' | 'failed'
   tracking: string | null;
   courier: string | null;
   address: string;
@@ -23,6 +24,7 @@ export async function trackOrder(orderNumber: string, email: string): Promise<Tr
     date: new Date(o.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
     status: o.order_status,
     statusLabel: o.order_status.charAt(0).toUpperCase() + o.order_status.slice(1),
+    paymentStatus: o.payment_status,
     tracking: o.tracking_number,
     courier: o.courier,
     address: o.shipping_address,

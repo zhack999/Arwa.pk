@@ -4,6 +4,7 @@ import Root from "./Root";
 
 // ── Lazy-loaded pages (code splitting) ───────────────────────────────────────
 const Home          = lazy(() => import("./pages/Home"));
+const About         = lazy(() => import("./pages/About"));
 const Shop          = lazy(() => import("./pages/Shop"));
 const ProductDetail = lazy(() => import("./pages/ProductDetail"));
 const Cart          = lazy(() => import("./pages/Cart"));
@@ -99,6 +100,7 @@ export const router = createBrowserRouter([
     Component: Root,
     children: [
       { index: true,            Component: Home },
+      { path: "about",          Component: About },
       { path: "shop",           Component: Shop },
       { path: "products/:slug", Component: ProductDetail },
       { path: "cart",           Component: Cart },

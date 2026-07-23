@@ -205,8 +205,10 @@ export function ProductCard({
   const isGrid = viewMode === "grid";
   return (
     <div
-      className={`group relative overflow-hidden transition-all duration-300 hover:shadow-xl cursor-pointer ${isGrid ? "flex flex-col" : "flex flex-row gap-5"}`}
-      style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}
+      className={`group relative overflow-hidden transition-all duration-500 cursor-pointer ${isGrid ? "flex flex-col" : "flex flex-row gap-5"}`}
+      style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)`, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-6px)"; e.currentTarget.style.boxShadow = "0 24px 48px rgba(26,61,43,0.16)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.04)"; }}
     >
       {/* Image */}
       <div
@@ -215,42 +217,54 @@ export function ProductCard({
         onClick={onView}
       >
         {product.imageUrl ? (
-          <ImageWithFallback src={product.imageUrl} alt={`${product.name} ${product.subtitle}`} className="w-full h-full object-cover" />
+          <ImageWithFallback
+            src={product.imageUrl}
+            alt={`${product.name} ${product.subtitle}`}
+            loading="lazy"
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+          />
         ) : (
           <div className="w-full h-full bg-gray-100 flex items-center justify-center" style={{ backgroundColor: "#eee8da" }}>
             <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.8rem", color: C.muted }}>Arwa Botaniqs</span>
           </div>
         )}
+        {/* Soft gradient for legibility over image */}
+        <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+          style={{ background: "linear-gradient(to top, rgba(26,61,43,0.35) 0%, transparent 40%)" }} />
+
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">
           {product.discount > 0 && (
-            <span className="px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+            <span className="px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
               {product.discount}% OFF
             </span>
           )}
           {product.isBestSeller && (
-            <span className="px-2 py-0.5 text-[10px]" style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>
+            <span className="px-2 py-0.5 text-[10px]" style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
               Best Seller
             </span>
           )}
         </div>
-        {/* Quick actions overlay */}
-        <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{ backgroundColor: "rgba(26,61,43,0.55)" }}>
+
+        {/* Wishlist — always visible, top-right, subtle */}
+        <button onClick={e => { e.stopPropagation(); onToggleWishlist(); }}
+          className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-300 hover:scale-110"
+          style={{ backgroundColor: "rgba(245,240,232,0.9)", backdropFilter: "blur(8px)", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }} title="Wishlist">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={inWishlist ? C.gold : "none"} stroke={inWishlist ? C.gold : C.green} strokeWidth="2.5">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          </svg>
+        </button>
+
+        {/* Quick view — appears on hover, bottom of image */}
+        <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-3 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
           <button onClick={e => { e.stopPropagation(); onQuickView(); }}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:scale-110 transition-transform"
-            style={{ backgroundColor: C.ivory }} title="Quick View">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5">
+            className="flex items-center gap-1.5 px-4 py-2 text-[10px] uppercase tracking-widest font-medium rounded-full hover:scale-105 transition-transform"
+            style={{ backgroundColor: "rgba(245,240,232,0.95)", backdropFilter: "blur(8px)", color: C.green, fontFamily: "'DM Sans',sans-serif", boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-          </button>
-          <button onClick={e => { e.stopPropagation(); onToggleWishlist(); }}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:scale-110 transition-transform"
-            style={{ backgroundColor: C.ivory }} title="Wishlist">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill={inWishlist ? C.gold : "none"} stroke={inWishlist ? C.gold : C.green} strokeWidth="2.5">
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
+            Quick View
           </button>
         </div>
       </div>
@@ -264,8 +278,10 @@ export function ProductCard({
           className="hover:text-[#c9a84c] transition-colors">
           {product.name}<br />{product.subtitle}
         </h3>
-        <StarRating rating={product.rating} size={12} />
-        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted, marginTop: 2 }}>({product.reviewCount} reviews)</p>
+        <div className="flex items-center gap-1.5">
+          <StarRating rating={product.rating} size={12} />
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>({product.reviewCount})</span>
+        </div>
         {!isGrid && (
           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "#4a5a4a", lineHeight: 1.7, marginTop: 6, maxWidth: 400 }}>
             {product.description.slice(0, 120)}...
@@ -278,9 +294,11 @@ export function ProductCard({
           )}
         </div>
         <button onClick={e => { e.stopPropagation(); onAddToCart(); }}
-          className="group/btn relative overflow-hidden py-2.5 text-xs font-medium tracking-widest uppercase transition-all"
+          className="group/btn relative overflow-hidden py-2.5 text-xs font-medium tracking-widest uppercase transition-all duration-300 hover:shadow-lg"
           style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.14em" }}>
-          <span className="relative z-10">Add to Cart</span>
+          <span className="relative z-10 flex items-center justify-center gap-1.5">
+            Add to Cart
+          </span>
           <span className="absolute inset-0 translate-x-full group-hover/btn:translate-x-0 transition-transform duration-300" style={{ backgroundColor: C.gold }} />
           <span className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300" style={{ color: C.green }}>Add to Cart</span>
         </button>

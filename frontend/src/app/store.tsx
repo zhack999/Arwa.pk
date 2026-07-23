@@ -1,8 +1,9 @@
+import { fetchAdminNotifications, markAdminNotificationRead, markAllAdminNotificationsRead, deleteAdminNotification, type AdminNotification } from "./api/adminNotifications";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { toast } from "sonner";
 import { type Product } from "./data";
 import { loginApi, logoutApi, checkAuthApi, type Admin } from "./api/auth";
-import { registerApi, loginCustomerApi, logoutCustomerApi, checkCustomerAuthApi } from "./api/customerAuth";
+import { registerApi, loginCustomerApi, logoutCustomerApi, checkCustomerAuthApi, verifyEmailOtpApi, verifyEmailTokenApi, resendVerificationApi, forgotPasswordApi, verifyResetOtpApi, resetPasswordApi, googleAuthApi, facebookAuthApi, logoutAllDevicesApi, fetchAuthConfig, type AuthProviderConfig } from "./api/customerAuth";
 import { fetchWishlist, addWishlistItem, removeWishlistItem } from "./api/wishlist";
 import { fetchStorefrontProducts } from "./api/products";
 import {
@@ -13,21 +14,6 @@ import {
   clearCart as clearCartApi,
   type BackendCartItem,
 } from "./api/cart";
-import {
-  fetchNotifications,
-  markNotificationRead as markNotificationReadApi,
-  markAllNotificationsRead as markAllNotificationsReadApi,
-  deleteNotification as deleteNotificationApi,
-  type Notification,
-} from "./api/notifications";
-
-import {
-  fetchAdminNotifications,
-  markAdminNotificationRead as markAdminNotificationReadApi,
-  markAllAdminNotificationsRead as markAllAdminNotificationsReadApi,
-  deleteAdminNotification as deleteAdminNotificationApi,
-  type AdminNotification,
-} from "./api/adminNotifications";
 
 export interface CartItem {
   product: Product;
@@ -49,18 +35,6 @@ export interface User {
 interface Store {
   // Products (real data from the backend, replacing the old data.ts mock list)
   products: Product[];
-  // Notifications
-  notifications: Notification[];
-  unreadCount: number;
-  markNotifRead: (id: string) => void;
-  markAllNotifsRead: () => void;
-  deleteNotif: (id: string) => void;
-  // Admin notifications
-  adminNotifications: AdminNotification[];
-  adminUnreadCount: number;
-  markAdminNotifRead: (id: string) => void;
-  markAllAdminNotifsRead: () => void;
-  deleteAdminNotif: (id: string) => void;
   productsLoading: boolean;
   productsError: string | null;
   refetchProducts: () => void;
@@ -83,7 +57,19 @@ interface Store {
   login: (u: User) => void;
   updateUser: (patch: Partial<User>) => void;
   customerLogin: (email: string, password: string) => Promise<void>;
-  customerRegister: (name: string, email: string, phone: string, password: string) => Promise<void>;
+  // Registration no longer logs the user in — it returns the email so the caller can
+  // route to the verify-email screen instead of the dashboard.
+  customerRegister: (name: string, email: string, phone: string, password: string) => Promise<{ email: string }>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<void>;
+  verifyEmailToken: (email: string, token: string) => Promise<void>;
+  resendVerification: (email: string) => Promise<string>;
+  requestPasswordReset: (email: string) => Promise<string>;
+  verifyResetOtp: (email: string, otp: string) => Promise<string>;
+  resetPassword: (resetToken: string, newPassword: string) => Promise<string>;
+  googleLogin: (accessToken: string) => Promise<void>;
+  facebookLogin: (accessToken: string) => Promise<void>;
+  logoutAllDevices: () => Promise<void>;
+  authProviderConfig: AuthProviderConfig | null;
   logout: () => void;
   // Recently viewed
   recentlyViewed: Product[];
@@ -94,6 +80,11 @@ interface Store {
   adminAuthLoading: boolean;
   adminLogin: (email: string, password: string) => Promise<boolean>;
   adminLogout: () => Promise<void>;
+  adminNotifications: AdminNotification[];
+  adminUnreadCount: number;
+  markAdminNotifRead: (id: string) => void;
+  markAllAdminNotifsRead: () => void;
+  deleteAdminNotif: (id: string) => void;
   // UI overlays
   cartDrawerOpen: boolean;
   setCartDrawerOpen: (v: boolean) => void;
@@ -107,14 +98,19 @@ const StoreCtx = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [products, setProducts]             = useState<Product[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [productsError, setProductsError]   = useState<string | null>(null);
   const [cart, setCart]                     = useState<CartItem[]>([]);
   const [wishlist, setWishlist]             = useState<Set<string>>(new Set());
   const [user, setUser]                     = useState<User | null>(null);
   const [customerAuthLoading, setCustomerAuthLoading] = useState(true);
+  const [authProviderConfig, setAuthProviderConfig] = useState<AuthProviderConfig | null>(null);
+
+  useEffect(() => {
+    fetchAuthConfig()
+      .then(setAuthProviderConfig)
+      .catch(() => setAuthProviderConfig({ google: false, facebook: false })); // fail closed — hide social buttons rather than show a broken flow
+  }, []);
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen]         = useState(false);
@@ -123,6 +119,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ── Admin auth state ──
   const [admin, setAdmin]                   = useState<Admin | null>(null);
   const [adminAuthLoading, setAdminAuthLoading] = useState(true);
+  const isAdmin = admin !== null;
+
+  // ── Admin notifications state ──
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
 
   const loadProducts = useCallback(() => {
     setProductsLoading(true);
@@ -146,6 +146,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .catch(() => setAdmin(null))
       .finally(() => setAdminAuthLoading(false));
   }, []);
+
+  // Load admin notifications whenever we become an authenticated admin;
+  // clear them out on logout so a fresh login doesn't briefly flash stale data.
+  useEffect(() => {
+    if (!isAdmin) { setAdminNotifications([]); return; }
+    fetchAdminNotifications().then(setAdminNotifications).catch(() => setAdminNotifications([]));
+  }, [isAdmin]);
+
   // If any API call anywhere in the app gets a 401 (session expired/invalid),
   // client.ts fires this event. We only react if the admin was actually
   // logged in — otherwise this would also fire on a plain failed login
@@ -183,7 +191,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toast.info("You have been logged out.");
   }, []);
 
-  const isAdmin = admin !== null;
+  const markAdminNotifRead = useCallback((id: string) => {
+    setAdminNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    markAdminNotificationRead(id).catch(() => {});
+  }, []);
+
+  const markAllAdminNotifsRead = useCallback(() => {
+    setAdminNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    markAllAdminNotificationsRead().catch(() => {});
+  }, []);
+
+  const deleteAdminNotif = useCallback((id: string) => {
+    setAdminNotifications(prev => prev.filter(n => n.id !== id));
+    deleteAdminNotification(id).catch(() => {});
+  }, []);
+
+  const adminUnreadCount = adminNotifications.filter(n => !n.is_read).length;
 
   const addToCart = useCallback((product: Product, qty = 1) => {
     setCart(prev => {
@@ -268,9 +291,51 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const customerRegister = useCallback(async (name: string, email: string, phone: string, password: string) => {
     const [first_name, ...rest] = name.trim().split(" ");
     const last_name = rest.join(" ") || "-";
-    const c = await registerApi({ first_name, last_name, email, phone, password });
+    const { email: registeredEmail } = await registerApi({ first_name, last_name, email, phone, password });
+    return { email: registeredEmail };
+  }, []);
+
+  const verifyEmailOtp = useCallback(async (email: string, otp: string) => {
+    const c = await verifyEmailOtpApi(email, otp);
     login(toUser(c));
   }, [login]);
+
+  const verifyEmailToken = useCallback(async (email: string, token: string) => {
+    const c = await verifyEmailTokenApi(email, token);
+    login(toUser(c));
+  }, [login]);
+
+  const resendVerification = useCallback(async (email: string) => {
+    return resendVerificationApi(email);
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    return forgotPasswordApi(email);
+  }, []);
+
+  const verifyResetOtp = useCallback(async (email: string, otp: string) => {
+    return verifyResetOtpApi(email, otp);
+  }, []);
+
+  const resetPassword = useCallback(async (resetToken: string, newPassword: string) => {
+    return resetPasswordApi(resetToken, newPassword);
+  }, []);
+
+  const googleLogin = useCallback(async (accessToken: string) => {
+    const c = await googleAuthApi(accessToken);
+    login(toUser(c));
+  }, [login]);
+
+  const facebookLogin = useCallback(async (accessToken: string) => {
+    const c = await facebookAuthApi(accessToken);
+    login(toUser(c));
+  }, [login]);
+
+  const logoutAllDevices = useCallback(async () => {
+    await logoutAllDevicesApi();
+    setUser(null);
+    toast.info("You have been logged out of all devices.");
+  }, []);
 
   const logout = useCallback(() => {
     logoutCustomerApi().catch(() => {});
@@ -284,6 +349,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then(c => setUser(toUser(c)))
       .catch(() => setUser(null))
       .finally(() => setCustomerAuthLoading(false));
+  }, []);
+
+  // Same idea as the admin listener above: if the customer's cookie expires or
+  // becomes invalid mid-session (any API call gets a 401), clear their state
+  // and tell them, instead of leaving the UI stuck showing them as logged in
+  // while every request silently fails. We only react if they were actually
+  // logged in, so a failed login attempt doesn't wrongly trigger this.
+  useEffect(() => {
+    const handleExpired = () => {
+      setUser(prev => {
+        if (prev) toast.error("Your session has expired. Please log in again.");
+        return null;
+      });
+    };
+    window.addEventListener("admin-session-expired", handleExpired);
+    return () => window.removeEventListener("admin-session-expired", handleExpired);
   }, []);
 
   // Whenever the logged-in customer changes (login/logout/session-restore), load their
@@ -322,56 +403,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, [user, products]);
-  // Poll for new notifications every 30s while logged in.
-  useEffect(() => {
-    if (!user) { setNotifications([]); return; }
-    const load = () => fetchNotifications().then(setNotifications).catch(() => {});
-    load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
-  }, [user]);
-
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  const markNotifRead = useCallback((id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
-    markNotificationReadApi(id).catch(() => {});
-  }, []);
-
-  const markAllNotifsRead = useCallback(() => {
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    markAllNotificationsReadApi().catch(() => {});
-  }, []);
-
-  const deleteNotif = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-    deleteNotificationApi(id).catch(() => {});
-  }, []);
-  // Poll for new admin notifications every 30s while an admin is logged in.
-  useEffect(() => {
-    if (!isAdmin) { setAdminNotifications([]); return; }
-    const load = () => fetchAdminNotifications().then(setAdminNotifications).catch(() => {});
-    load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
-  }, [isAdmin]);
-
-  const adminUnreadCount = adminNotifications.filter(n => !n.is_read).length;
-
-  const markAdminNotifRead = useCallback((id: string) => {
-    setAdminNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
-    markAdminNotificationReadApi(id).catch(() => {});
-  }, []);
-
-  const markAllAdminNotifsRead = useCallback(() => {
-    setAdminNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    markAllAdminNotificationsReadApi().catch(() => {});
-  }, []);
-
-  const deleteAdminNotif = useCallback((id: string) => {
-    setAdminNotifications(prev => prev.filter(n => n.id !== id));
-    deleteAdminNotificationApi(id).catch(() => {});
-  }, []);
 
   const addToRecentlyViewed = useCallback((p: Product) => {
     setRecentlyViewed(prev => [p, ...prev.filter(x => x.id !== p.id)].slice(0, 10));
@@ -385,15 +416,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   return (
     <StoreCtx.Provider value={{
-      notifications, unreadCount, markNotifRead, markAllNotifsRead, deleteNotif,
-      adminNotifications, adminUnreadCount, markAdminNotifRead, markAllAdminNotifsRead, deleteAdminNotif,
       products, productsLoading, productsError, refetchProducts: loadProducts,
       cart, cartCount, cartTotal,
       addToCart, removeFromCart, updateQty, clearCart,
       wishlist, wishlistCount, toggleWishlist,
       user, isAuthenticated, customerAuthLoading, login, updateUser, customerLogin, customerRegister, logout,
+      verifyEmailOtp, verifyEmailToken, resendVerification, requestPasswordReset, verifyResetOtp, resetPassword,
+      googleLogin, facebookLogin, logoutAllDevices, authProviderConfig,
       recentlyViewed, addToRecentlyViewed,
       admin, isAdmin, adminAuthLoading, adminLogin, adminLogout,
+      adminNotifications, adminUnreadCount, markAdminNotifRead, markAllAdminNotifsRead, deleteAdminNotif,
       cartDrawerOpen, setCartDrawerOpen,
       searchOpen, setSearchOpen,
       quickViewId, setQuickViewId,

@@ -1,3 +1,19 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+/* ... all your existing CSS stays exactly as-is above this ... */
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+.float-slow { animation: floatSlow 5s ease-in-out infinite; }
+@keyframes blobMorph {
+  0%, 100% { border-radius: 42% 58% 65% 35% / 45% 40% 60% 55%; }
+  50% { border-radius: 58% 42% 35% 65% / 55% 60% 40% 45%; }
+}
+@keyframes breathePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.breathe { animation: breathePulse 3.5s ease-in-out infinite; }

@@ -150,7 +150,11 @@ export default function OrderTracking() {
             </>
           )}
           {isCancelled && (
-            <p className="mt-6 text-sm" style={{ fontFamily: "'DM Sans',sans-serif", color: "#ff8080" }}>This order was cancelled.</p>
+            <p className="mt-6 text-sm" style={{ fontFamily: "'DM Sans',sans-serif", color: "#ff8080" }}>
+              {order.paymentStatus === "refunded"
+                ? (order.timeline.find(t => t.status === "cancelled")?.note || "This order was cancelled and your payment has been refunded.")
+                : "This order was cancelled."}
+            </p>
           )}
         </div>
       </div>

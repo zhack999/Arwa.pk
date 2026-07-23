@@ -7,12 +7,20 @@ import { BrandLogo, C, LeafSVG, GoldLine } from "./shared";
 import { POPULAR_SEARCHES } from "./data";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
 import IntroScreen, { shouldShowIntro } from "./components/IntroScreen";
+import SmoothScroll from "./components/SmoothScroll";
+import { subscribeToNewsletter } from "./api/newsletter";
 import {
-  Menu, X, Bell, ShoppingCart, Heart, Search, Phone, Mail, MapPin,
+  Menu, X, ShoppingCart, Heart, Search, Phone, Mail, MapPin,
   Instagram, Facebook, MessageCircle, Truck, RotateCcw, Shield,
   ChevronDown, Plus, Minus, Trash2, User, LogOut, LayoutDashboard,
   Bot, Zap,
 } from "lucide-react";
+
+// Pages where the navbar should always stay visible and instantly clickable —
+// Apple-style hide-on-scroll only makes sense on marketing/storefront pages,
+// not on functional pages like the dashboard, checkout, or admin panel.
+const UTILITY_PREFIXES = ["/dashboard", "/checkout", "/cart", "/auth", "/admin"];
+const isUtilityPath = (path: string) => UTILITY_PREFIXES.some(p => path.startsWith(p));
 
 // ─── Countdown hook ───────────────────────────────────────────────────────────
 function useCountdown(target: Date) {
@@ -28,29 +36,54 @@ function useCountdown(target: Date) {
 }
 
 // ─── Flash Sale Banner (Phase H) ──────────────────────────────────────────────
-const SALE_END = new Date("2026-07-05T23:59:59");
+const SALE_END = new Date("2026-08-15T23:59:59");
 
-function FlashSaleBanner({ onDismiss }: { onDismiss: () => void }) {
+function FlashSaleBanner({ onDismiss, onExpire }: { onDismiss: () => void; onExpire: () => void }) {
   const { h, m, s, expired } = useCountdown(SALE_END);
+  useEffect(() => { if (expired) onExpire(); }, [expired]);
   if (expired) return null;
   const pad = (n: number) => String(n).padStart(2, "0");
   return (
-    <div className="flex items-center justify-center gap-3 px-4 py-2 relative" style={{ backgroundColor: C.gold, minHeight: 40 }}>
-      <span className="hidden sm:block" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", fontWeight: 600, color: C.green, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-        ⚡ Flash Sale — 45% OFF
+    <div className="relative overflow-hidden flex items-center justify-center gap-2.5 px-3 py-2"
+      style={{
+        height: 40,
+        background: `linear-gradient(90deg, ${C.green} 0%, #2a5c40 25%, ${C.gold} 50%, #2a5c40 75%, ${C.green} 100%)`,
+        backgroundSize: "200% 100%",
+        animation: "arwaBannerShift 6s linear infinite",
+      }}>
+      <motion.span
+        animate={{ rotate: [0, 15, -10, 15, 0], scale: [1, 1.15, 1] }}
+        transition={{ duration: 1.6, repeat: Infinity, repeatDelay: 1.2, ease: "easeInOut" }}
+        className="flex-shrink-0">
+        <Zap size={14} color={C.gold} fill={C.gold} />
+      </motion.span>
+
+      <span className="whitespace-nowrap" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", fontWeight: 700, color: C.ivory, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+        Flash Sale
       </span>
-      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", color: C.green }}>|</span>
-      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.green }}>Ends in:</span>
+
+      <motion.span
+        animate={{ scale: [1, 1.12, 1] }}
+        transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+        className="hidden sm:inline-flex items-center px-2 py-0.5 whitespace-nowrap"
+        style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'Playfair Display',serif", fontWeight: 700, fontSize: "0.78rem", letterSpacing: "0.02em" }}>
+        40% OFF
+      </motion.span>
+
+      <span className="hidden md:inline whitespace-nowrap" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", color: "rgba(245,240,232,0.75)" }}>
+        Ends in
+      </span>
       <div className="flex items-center gap-1">
         {[pad(h), pad(m), pad(s)].map((v, i) => (
           <span key={i} className="flex items-center gap-1">
-            <span className="px-1.5 py-0.5 font-bold text-xs" style={{ backgroundColor: C.green, color: C.gold, fontFamily: "'DM Sans',sans-serif", minWidth: 26, textAlign: "center" }}>{v}</span>
-            {i < 2 && <span style={{ color: C.green, fontWeight: 700 }}>:</span>}
+            <span className="px-1.5 py-0.5 font-bold text-xs" style={{ backgroundColor: "rgba(245,240,232,0.12)", color: C.gold, fontFamily: "'DM Sans',sans-serif", minWidth: 26, textAlign: "center", border: `1px solid rgba(201,168,76,0.3)` }}>{v}</span>
+            {i < 2 && <span style={{ color: C.gold, fontWeight: 700 }}>:</span>}
           </span>
         ))}
       </div>
+
       <button onClick={onDismiss} className="absolute right-3 top-1/2 -translate-y-1/2 hover:opacity-60 transition-opacity" aria-label="Dismiss sale banner">
-        <X size={14} color={C.green} />
+        <X size={14} color={C.ivory} />
       </button>
     </div>
   );
@@ -90,169 +123,144 @@ const NAV_LINKS = [
   { label: "Shop",     href: "/shop" },
   { label: "Skin Quiz", href: "/quiz" },
   { label: "AI Assistant", href: "/ai" },
-  { label: "About",    href: "/#brand-story" },
+  { label: "About",    href: "/about" },
 ];
 
 function Navbar({ scrollY, navTop, hidden }: { scrollY: number; navTop: number; hidden: boolean }) {
   const navigate    = useNavigate();
   const location    = useLocation();
-  const { cartCount, wishlistCount, setCartDrawerOpen, setSearchOpen, user, isAuthenticated, logout, notifications, unreadCount, markNotifRead, markAllNotifsRead, deleteNotif } = useStore();
+  const { cartCount, wishlistCount, setCartDrawerOpen, setSearchOpen, user, isAuthenticated, customerAuthLoading, logout } = useStore();
   const [navOpen, setNavOpen]       = useState(false);
   const [userMenu, setUserMenu]     = useState(false);
-  const [notifOpen, setNotifOpen]   = useState(false);
   const scrolled = scrollY > 64 || location.pathname !== "/";
   const light    = !scrolled;
+  const isAuthPage = location.pathname.startsWith("/auth");
 
   return (
-    <nav className="fixed left-0 right-0 z-50 transition-all duration-500"
+    <nav className="fixed left-0 right-0 z-[65] isolate transition-all duration-500"
       style={{ top: navTop, backgroundColor: scrolled ? C.cream : "rgba(26,61,43,0.97)", backdropFilter: "blur(14px)", boxShadow: scrolled ? "0 1px 24px rgba(0,0,0,0.08)" : "none", transform: (hidden && !navOpen && !userMenu) ? "translateY(-100%)" : "translateY(0)", transition: "transform 0.35s ease, background-color 0.5s, box-shadow 0.5s" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between" style={{ height: scrolled ? 64 : 76, transition: "height 0.4s" }}>
         <div onClick={() => navigate("/")} style={{ cursor: "pointer" }}><BrandLogo light={light} compact /></div>
 
-        {/* Desktop links */}
-        <div className="hidden lg:flex items-center gap-6">
-          {NAV_LINKS.map(l => (
-            <a key={l.label} href={l.href}
-              onClick={e => { if (!l.href.startsWith("#")) { e.preventDefault(); navigate(l.href); } }}
-              style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", color: light ? C.ivory : C.green, fontWeight: location.pathname === l.href ? 600 : 400 }}
-              className="hover:opacity-60 transition-opacity">{l.label}</a>
-          ))}
-        </div>
+        {isAuthPage ? (
+          <button onClick={() => navigate("/")} className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+            style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.1em", textTransform: "uppercase", color: light ? C.ivory : C.green }}>
+            ← Back to Home
+          </button>
+        ) : (
+          <>
+            {/* Desktop links */}
+            <div className="hidden lg:flex items-center gap-6">
+              {NAV_LINKS.map(l => (
+                <a key={l.label} href={l.href}
+                  onClick={e => { if (!l.href.startsWith("#")) { e.preventDefault(); navigate(l.href); } }}
+                  style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", color: light ? C.ivory : C.green, fontWeight: location.pathname === l.href ? 600 : 400 }}
+                  className="hover:opacity-60 transition-opacity">{l.label}</a>
+              ))}
+            </div>
 
-        {/* Icons */}
-        <div className="flex items-center gap-1.5">
-          <button onClick={() => setSearchOpen(true)} className="p-2 hover:opacity-60 transition-opacity" aria-label="Search">
-            <Search size={18} color={light ? C.ivory : C.green} />
-          </button>
-          <button onClick={() => navigate("/shop")} className="relative p-2 hover:opacity-60 transition-opacity" aria-label="Wishlist">
-            <Heart size={18} color={light ? C.ivory : C.green} />
-            {wishlistCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{wishlistCount}</span>
-            )}
-          </button>
-          <button onClick={() => setCartDrawerOpen(true)} className="relative p-2 hover:opacity-60 transition-opacity" aria-label="Cart">
-            <ShoppingCart size={18} color={light ? C.ivory : C.green} />
-            {cartCount > 0 && (
-              <motion.span key={cartCount} initial={{ scale: 0.5 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{cartCount}</motion.span>
-            )}
-          </button>
-
-          {isAuthenticated && (
-            <div className="relative">
-              <button onClick={() => setNotifOpen(!notifOpen)} className="relative p-2 hover:opacity-60 transition-opacity" aria-label="Notifications">
-                <Bell size={18} color={light ? C.ivory : C.green} />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{unreadCount}</span>
+            {/* Icons */}
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setSearchOpen(true)} className="p-2 hover:opacity-60 transition-opacity" aria-label="Search">
+                <Search size={18} color={light ? C.ivory : C.green} />
+              </button>
+              <button onClick={() => navigate("/shop")} className="relative p-2 hover:opacity-60 transition-opacity" aria-label="Wishlist">
+                <Heart size={18} color={light ? C.ivory : C.green} />
+                {wishlistCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{wishlistCount}</span>
                 )}
               </button>
-              <AnimatePresence>
-                {notifOpen && (
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
-                    className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto z-20"
-                    style={{ backgroundColor: C.cream, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid rgba(201,168,76,0.2)` }}>
-                    <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
-                      <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.9rem", color: C.green, fontWeight: 600 }}>Notifications</p>
-                      {unreadCount > 0 && (
-                        <button onClick={markAllNotifsRead} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.7rem", color: C.gold }}>Mark all read</button>
-                      )}
+              <button onClick={() => setCartDrawerOpen(true)} className="relative p-2 hover:opacity-60 transition-opacity" aria-label="Cart">
+                <ShoppingCart size={18} color={light ? C.ivory : C.green} />
+                {cartCount > 0 && (
+                  <motion.span key={cartCount} initial={{ scale: 0.5 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ backgroundColor: C.gold, color: C.green }}>{cartCount}</motion.span>
+                )}
+              </button>
+
+              {/* Auth state — while we're still asking the backend "is this cookie
+                  valid?", show neither state rather than briefly flashing "Sign In"
+                  for someone who's actually still logged in. */}
+              {customerAuthLoading ? (
+                <div className="w-8 h-8" />
+              ) : isAuthenticated && user ? (
+                <div className="relative">
+                  <button onClick={() => setUserMenu(!userMenu)} className="flex items-center gap-2 p-1 hover:opacity-80 transition-opacity" aria-label="Account">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm"
+                      style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'Playfair Display',serif" }}>
+                      {user.name[0]}
                     </div>
-                    {notifications.length === 0 ? (
-                      <p className="px-4 py-6 text-center" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted }}>No notifications yet.</p>
-                    ) : (
-                      notifications.map(n => (
-                        <div key={n.id} onClick={() => { markNotifRead(n.id); if (n.link) { navigate(n.link); setNotifOpen(false); } }}
-                          className="px-4 py-3 border-b cursor-pointer hover:bg-[rgba(201,168,76,0.06)] transition-colors flex items-start justify-between gap-2"
-                          style={{ borderColor: "rgba(201,168,76,0.1)", backgroundColor: n.is_read ? "transparent" : "rgba(201,168,76,0.06)" }}>
-                          <div>
-                            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", fontWeight: n.is_read ? 400 : 600, color: C.green }}>{n.title}</p>
-                            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.74rem", color: C.muted, marginTop: 2 }}>{n.message}</p>
-                          </div>
-                          <button onClick={e => { e.stopPropagation(); deleteNotif(n.id); }} style={{ color: C.muted, fontSize: "0.9rem" }}>×</button>
+                  </button>
+                  <AnimatePresence>
+                    {userMenu && (
+                      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                        className="absolute right-0 top-full mt-2 w-48 py-1 z-20"
+                        style={{ backgroundColor: C.cream, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid rgba(201,168,76,0.2)` }}>
+                        <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
+                          <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.9rem", color: C.green, fontWeight: 600 }}>{user.name}</p>
+                          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>{user.email}</p>
                         </div>
-                      ))
+                        <button onClick={() => { navigate("/dashboard"); setUserMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[rgba(201,168,76,0.08)] transition-colors"
+                          style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>
+                          <LayoutDashboard size={14} /> Dashboard
+                        </button>
+                        <button onClick={() => { navigate("/dashboard/orders"); setUserMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[rgba(201,168,76,0.08)] transition-colors"
+                          style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>
+                          <ShoppingCart size={14} /> My Orders
+                        </button>
+                        <div style={{ borderTop: `1px solid rgba(201,168,76,0.15)`, marginTop: 4 }}>
+                          <button onClick={() => { logout(); setUserMenu(false); navigate("/"); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-red-50 transition-colors"
+                            style={{ fontFamily: "'DM Sans',sans-serif", color: "#d4183d" }}>
+                            <LogOut size={14} /> Logout
+                          </button>
+                        </div>
+                      </motion.div>
                     )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {/* Auth state */}
-          {isAuthenticated && user ? (
-            <div className="relative">
-              <button onClick={() => setUserMenu(!userMenu)} className="flex items-center gap-2 p-1 hover:opacity-80 transition-opacity" aria-label="Account">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm"
-                  style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'Playfair Display',serif" }}>
-                  {user.name[0]}
+                  </AnimatePresence>
                 </div>
-              </button>
-              <AnimatePresence>
-                {userMenu && (
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
-                    className="absolute right-0 top-full mt-2 w-48 py-1 z-20"
-                    style={{ backgroundColor: C.cream, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid rgba(201,168,76,0.2)` }}>
-                    <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
-                      <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "0.9rem", color: C.green, fontWeight: 600 }}>{user.name}</p>
-                      <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: C.muted }}>{user.email}</p>
-                    </div>
-                    <button onClick={() => { navigate("/dashboard"); setUserMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[rgba(201,168,76,0.08)] transition-colors"
-                      style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>
-                      <LayoutDashboard size={14} /> Dashboard
-                    </button>
-                    <button onClick={() => { navigate("/dashboard/orders"); setUserMenu(false); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[rgba(201,168,76,0.08)] transition-colors"
-                      style={{ fontFamily: "'DM Sans',sans-serif", color: C.green }}>
-                      <ShoppingCart size={14} /> My Orders
-                    </button>
-                    <div style={{ borderTop: `1px solid rgba(201,168,76,0.15)`, marginTop: 4 }}>
-                      <button onClick={() => { logout(); setUserMenu(false); navigate("/"); }} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-red-50 transition-colors"
-                        style={{ fontFamily: "'DM Sans',sans-serif", color: "#d4183d" }}>
-                        <LogOut size={14} /> Logout
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <button onClick={() => navigate("/auth/login")} className="hidden sm:flex items-center gap-1.5 px-4 py-2 text-xs font-medium uppercase tracking-widest ml-1"
-              style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
-              <User size={13} /> Sign In
-            </button>
-          )}
+              ) : (
+                <button onClick={() => navigate("/auth/login")} className="hidden sm:flex items-center gap-1.5 px-4 py-2 text-xs font-medium uppercase tracking-widest ml-1"
+                  style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+                  <User size={13} /> Sign In
+                </button>
+              )}
 
-          <button className="lg:hidden p-2 hover:opacity-60 transition-opacity ml-1" aria-label="Menu" onClick={() => setNavOpen(!navOpen)}>
-            {navOpen ? <X size={22} color={light ? C.ivory : C.green} /> : <Menu size={22} color={light ? C.ivory : C.green} />}
-          </button>
-        </div>
+              <button className="lg:hidden p-2 hover:opacity-60 transition-opacity ml-1" aria-label="Menu" onClick={() => setNavOpen(!navOpen)}>
+                {navOpen ? <X size={22} color={light ? C.ivory : C.green} /> : <Menu size={22} color={light ? C.ivory : C.green} />}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Mobile drawer */}
-      <AnimatePresence>
-        {navOpen && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-            className="lg:hidden overflow-hidden" style={{ backgroundColor: C.green, borderTop: `1px solid rgba(201,168,76,0.15)` }}>
-            <div className="px-5 pb-5 pt-2">
-              {NAV_LINKS.map(l => (
-                <a key={l.label} href={l.href} className="block py-3 text-sm"
-                  onClick={e => { e.preventDefault(); navigate(l.href); setNavOpen(false); }}
-                  style={{ fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", color: C.ivory, borderBottom: `1px solid rgba(201,168,76,0.12)` }}>{l.label}</a>
-              ))}
-              {!isAuthenticated && (
-                <button onClick={() => { navigate("/auth/login"); setNavOpen(false); }} className="w-full mt-4 py-3 text-sm uppercase tracking-widest"
-                  style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
-                  Sign In / Register
-                </button>
-              )}
-              {isAuthenticated && user && (
-                <button onClick={() => { navigate("/dashboard"); setNavOpen(false); }} className="w-full mt-4 py-3 text-sm uppercase tracking-widest"
-                  style={{ backgroundColor: "rgba(201,168,76,0.15)", color: C.gold, fontFamily: "'DM Sans',sans-serif" }}>
-                  My Dashboard
-                </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {!isAuthPage && (
+        <AnimatePresence>
+          {navOpen && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+              className="lg:hidden overflow-hidden" style={{ backgroundColor: C.green, borderTop: `1px solid rgba(201,168,76,0.15)` }}>
+              <div className="px-5 pb-5 pt-2">
+                {NAV_LINKS.map(l => (
+                  <a key={l.label} href={l.href} className="block py-3 text-sm"
+                    onClick={e => { e.preventDefault(); navigate(l.href); setNavOpen(false); }}
+                    style={{ fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", color: C.ivory, borderBottom: `1px solid rgba(201,168,76,0.12)` }}>{l.label}</a>
+                ))}
+                {!customerAuthLoading && !isAuthenticated && (
+                  <button onClick={() => { navigate("/auth/login"); setNavOpen(false); }} className="w-full mt-4 py-3 text-sm uppercase tracking-widest"
+                    style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+                    Sign In / Register
+                  </button>
+                )}
+                {!customerAuthLoading && isAuthenticated && user && (
+                  <button onClick={() => { navigate("/dashboard"); setNavOpen(false); }} className="w-full mt-4 py-3 text-sm uppercase tracking-widest"
+                    style={{ backgroundColor: "rgba(201,168,76,0.15)", color: C.gold, fontFamily: "'DM Sans',sans-serif" }}>
+                    My Dashboard
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </nav>
   );
 }
@@ -507,7 +515,24 @@ function CookieBanner({ onAccept }: { onAccept: () => void }) {
 function NewsletterPopup({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
   const dismiss = () => { localStorage.setItem("arwa_newsletter_seen", "1"); onClose(); };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || subscribing) return;
+    setSubscribing(true);
+    try {
+      const result = await subscribeToNewsletter(email);
+      setDone(true);
+      localStorage.setItem("arwa_newsletter_seen", "1");
+      toast.success(result.alreadySubscribed ? "You're already part of the family! 🌿" : "Welcome to the Arwa Botaniqs family! 🌿");
+    } catch (err: any) {
+      toast.error(err.message || "Couldn't subscribe. Please try again.");
+    } finally {
+      setSubscribing(false);
+    }
+  };
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.62)", backdropFilter: "blur(4px)" }}>
       <motion.div initial={{ opacity: 0, scale: 0.88 }} animate={{ opacity: 1, scale: 1 }} className="relative w-full max-w-sm p-8" style={{ backgroundColor: C.green, border: `1px solid rgba(201,168,76,0.28)` }}>
@@ -524,11 +549,13 @@ function NewsletterPopup({ onClose }: { onClose: () => void }) {
               <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.ivory }}>You are in! Welcome to Arwa Botaniqs.</p>
             </div>
           ) : (
-            <form onSubmit={e => { e.preventDefault(); if (email) { setDone(true); localStorage.setItem("arwa_newsletter_seen", "1"); toast.success("Welcome to the Arwa Botaniqs family!"); } }}>
+            <form onSubmit={handleSubmit}>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Your email address" required
                 className="w-full px-4 py-3 mb-3 text-sm outline-none"
                 style={{ backgroundColor: "rgba(245,240,232,0.08)", border: `1px solid rgba(201,168,76,0.22)`, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }} />
-              <button type="submit" className="w-full py-3 text-sm font-medium" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>Subscribe</button>
+              <button type="submit" disabled={subscribing} className="w-full py-3 text-sm font-medium" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", opacity: subscribing ? 0.6 : 1 }}>
+                {subscribing ? "Subscribing..." : "Subscribe"}
+              </button>
             </form>
           )}
           <button onClick={dismiss} className="mt-4 text-xs hover:opacity-50" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.3)" }}>No thanks</button>
@@ -602,15 +629,15 @@ function Footer() {
 
 // ─── Root Layout ──────────────────────────────────────────────────────────────
 export default function Root() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [loading,        setLoading]        = useState(true);
   const [scrollY,        setScrollY]        = useState(0);
-  const [navHidden,      setNavHidden]      = useState(true);
+  const [navHidden,      setNavHidden]      = useState(false);
   const [showBanner,     setShowBanner]     = useState(true);
   const [showCookie,     setShowCookie]     = useState(false);
   const [showNewsletter, setShowNewsletter] = useState(false);
   const [showIntro,      setShowIntro]      = useState(() => shouldShowIntro());
-  const location = useLocation();
-  const navigate = useNavigate();
   const lastScrollY = useRef(0);
   const scrollAccum = useRef(0);
   const scrollDir   = useRef<"up" | "down" | null>(null);
@@ -630,9 +657,12 @@ export default function Root() {
   }, []);
   useEffect(() => {
     const REVEAL_THRESHOLD = 40; // px of sustained upward scroll needed before the navbar reappears
+    const isUtility = isUtilityPath(location.pathname);
     const fn = () => {
       const y = window.scrollY;
       setScrollY(y);
+
+      if (isUtility) { setNavHidden(false); return; }
 
       const delta = y - lastScrollY.current;
       lastScrollY.current = y;
@@ -647,7 +677,7 @@ export default function Root() {
       }
       scrollAccum.current += Math.abs(delta);
 
-      if (dir === "down") {
+      if (dir === "down" && y > 80) {
         setNavHidden(true);
       } else if (dir === "up" && scrollAccum.current > REVEAL_THRESHOLD) {
         setNavHidden(false);
@@ -655,10 +685,10 @@ export default function Root() {
     };
     window.addEventListener("scroll", fn, { passive: true });
     return () => window.removeEventListener("scroll", fn);
-  }, []);
+  }, [location.pathname]);
   useEffect(() => {
     window.scrollTo(0, 0);
-    setNavHidden(true);
+    setNavHidden(false);
     lastScrollY.current = 0;
     scrollAccum.current = 0;
     scrollDir.current = null;
@@ -670,6 +700,7 @@ export default function Root() {
   const hideFooter = location.pathname.startsWith("/auth") || location.pathname.startsWith("/dashboard");
 
   return (
+    <SmoothScroll>
     <div style={{ fontFamily: "'DM Sans',sans-serif" }}>
       {/* Cinematic intro (Phase A) */}
       <AnimatePresence>
@@ -677,8 +708,9 @@ export default function Root() {
       </AnimatePresence>
 
       {/* Flash sale banner */}
+      <style>{`@keyframes arwaBannerShift { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }`}</style>
       <div className="fixed top-0 left-0 right-0 z-[60]">
-        <AnimatePresence>{showBanner && <motion.div key="banner" initial={{ height: 0, opacity: 0 }} animate={{ height: 40, opacity: 1 }} exit={{ height: 0, opacity: 0 }}><FlashSaleBanner onDismiss={() => setShowBanner(false)} /></motion.div>}</AnimatePresence>
+        <AnimatePresence>{showBanner && <motion.div key="banner" initial={{ height: 0, opacity: 0 }} animate={{ height: 40, opacity: 1 }} exit={{ height: 0, opacity: 0 }}><FlashSaleBanner onDismiss={() => setShowBanner(false)} onExpire={() => setShowBanner(false)} /></motion.div>}</AnimatePresence>
       </div>
 
       <ScrollProgress y={scrollY} top={BANNER_H + 2} />
@@ -715,7 +747,11 @@ export default function Root() {
       </button>
 
       {scrollY > 500 && (
-        <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top"
+        <button onClick={() => {
+            const lenis = (window as any).__lenis;
+            if (lenis) lenis.scrollTo(0, { duration: 1.2 });
+            else window.scrollTo({ top: 0, behavior: "smooth" });
+          }} aria-label="Back to top"
           className="fixed bottom-5 right-5 z-40 w-10 h-10 flex items-center justify-center hover:scale-110 transition-transform"
           style={{ backgroundColor: C.green }}>
           <ChevronDown size={17} color={C.gold} style={{ transform: "rotate(180deg)" }} />
@@ -731,5 +767,6 @@ export default function Root() {
 
       <Toaster position="top-right" toastOptions={{ style: { fontFamily: "'DM Sans',sans-serif", borderRadius: 0, border: `1px solid rgba(201,168,76,0.3)` } }} />
     </div>
+    </SmoothScroll>
   );
 }

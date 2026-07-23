@@ -14,6 +14,12 @@ export interface LowStockItem {
   stock: number;
 }
 
+export interface RevenueDay {
+  date: string;
+  revenue: number;
+  orders: number;
+}
+
 export interface DashboardStats {
   totalProducts: number;
   outOfStock: number;
@@ -24,6 +30,10 @@ export interface DashboardStats {
   totalCategories: number;
   topCategories: TopCategory[];
   lowStockList: LowStockItem[];
+  totalOrders: number;
+  pendingOrders: number;
+  totalRevenue: number;
+  revenueByDay: RevenueDay[];
 }
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {

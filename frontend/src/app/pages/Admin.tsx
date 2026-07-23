@@ -79,56 +79,16 @@ const STATUS: Record<string, { color: string; bg: string; label: string }> = {
 };
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
-type OrderStatus = "pending"|"processing"|"packed"|"shipped"|"delivered"|"cancelled"|"refund-requested";
-interface AdminOrder {
-  id: string; date: string; customer: string; city: string; province: string;
-  status: OrderStatus; total: number; items: number; payment: string;
-  phone: string; address: string; adminNote: string;
-}
-
-const ADMIN_ORDERS: AdminOrder[] = [
-  { id:"ARW-241567",date:"Jul 1, 2026",customer:"Ayesha Khan",     city:"Lahore",      province:"Punjab",         status:"shipped",    total:1398,items:2,payment:"JazzCash",phone:"+92 321 1111111",address:"House 45, Gulberg III",adminNote:"" },
-  { id:"ARW-235891",date:"Jul 1, 2026",customer:"Fatima Zahra",    city:"Karachi",     province:"Sindh",          status:"processing", total:549, items:1,payment:"COD",      phone:"+92 333 2222222",address:"DHA Phase 5",         adminNote:"" },
-  { id:"ARW-229034",date:"Jun 30, 2026",customer:"Zara Ahmed",     city:"Islamabad",   province:"Islamabad (ICT)",status:"delivered",  total:1647,items:3,payment:"EasyPaisa",phone:"+92 344 3333333",address:"F-7 Markaz",           adminNote:"Delivered on time" },
-  { id:"ARW-218765",date:"Jun 29, 2026",customer:"Hina Qureshi",   city:"Faisalabad",  province:"Punjab",         status:"packed",     total:549, items:1,payment:"COD",      phone:"+92 300 4444444",address:"Madina Town",         adminNote:"" },
-  { id:"ARW-207432",date:"Jun 28, 2026",customer:"Sana Tariq",     city:"Multan",      province:"Punjab",         status:"pending",    total:849, items:1,payment:"Visa",     phone:"+92 311 5555555",address:"Bosan Road",          adminNote:"" },
-  { id:"ARW-196543",date:"Jun 27, 2026",customer:"Maryam Ali",     city:"Rawalpindi",  province:"Punjab",         status:"delivered",  total:2196,items:4,payment:"JazzCash",phone:"+92 322 6666666",address:"Satellite Town",      adminNote:"" },
-  { id:"ARW-185234",date:"Jun 26, 2026",customer:"Noor Fatima",    city:"Peshawar",    province:"KPK",            status:"cancelled",  total:549, items:1,payment:"COD",      phone:"+92 333 7777777",address:"Hayatabad Phase 3",   adminNote:"Customer cancelled" },
-  { id:"ARW-174321",date:"Jun 25, 2026",customer:"Sara Khan",      city:"Lahore",      province:"Punjab",         status:"delivered",  total:1098,items:2,payment:"EasyPaisa",phone:"+92 340 8888888",address:"Model Town",          adminNote:"" },
-  { id:"ARW-163210",date:"Jun 24, 2026",customer:"Amna Malik",     city:"Karachi",     province:"Sindh",          status:"refund-requested",total:549,items:1,payment:"Visa",phone:"+92 315 9999999",address:"Clifton Block 4",     adminNote:"" },
-  { id:"ARW-152109",date:"Jun 23, 2026",customer:"Bilal Ahmed",    city:"Sialkot",     province:"Punjab",         status:"delivered",  total:1647,items:3,payment:"COD",      phone:"+92 306 0000000",address:"Cantt Area",          adminNote:"" },
-];
-
 interface AdminCustomer {
   id: string; name: string; email: string; phone: string; city: string; province: string;
   orders: number; spent: number; points: number; joined: string; status: "active"|"blocked"; vip: boolean;
 }
-const ADMIN_CUSTOMERS: AdminCustomer[] = [
-  { id:"c1",name:"Ayesha Khan",   email:"ayesha@gmail.com",   phone:"+92 321 1111111",city:"Lahore",   province:"Punjab",status:"active",orders:5,spent:4125,points:250,joined:"Jan 2026",vip:true  },
-  { id:"c2",name:"Fatima Zahra",  email:"fatima@gmail.com",   phone:"+92 333 2222222",city:"Karachi",  province:"Sindh", status:"active",orders:3,spent:1947,points:100,joined:"Feb 2026",vip:false },
-  { id:"c3",name:"Zara Ahmed",    email:"zara@gmail.com",     phone:"+92 344 3333333",city:"Islamabad",province:"ICT",   status:"active",orders:4,spent:2745,points:180,joined:"Mar 2026",vip:true  },
-  { id:"c4",name:"Hina Qureshi",  email:"hina@gmail.com",     phone:"+92 300 4444444",city:"Faisalabad",province:"Punjab",status:"active",orders:2,spent:1398,points:80, joined:"Mar 2026",vip:false },
-  { id:"c5",name:"Sana Tariq",    email:"sana@gmail.com",     phone:"+92 311 5555555",city:"Multan",   province:"Punjab",status:"active",orders:1,spent:849, points:50, joined:"Apr 2026",vip:false },
-  { id:"c6",name:"Maryam Ali",    email:"maryam@gmail.com",   phone:"+92 322 6666666",city:"Rawalpindi",province:"Punjab",status:"active",orders:6,spent:5394,points:320,joined:"Jan 2026",vip:true  },
-  { id:"c7",name:"Sara Khan",     email:"sara@gmail.com",     phone:"+92 340 8888888",city:"Lahore",   province:"Punjab",status:"active",orders:2,spent:1098,points:70, joined:"May 2026",vip:false },
-  { id:"c8",name:"Amna Malik",    email:"amna@gmail.com",     phone:"+92 315 9999999",city:"Karachi",  province:"Sindh", status:"blocked",orders:1,spent:549, points:0,  joined:"Jun 2026",vip:false },
-];
 
 interface AdminProduct {
   id: string; name: string; subtitle: string; sku: string; price: number; oldPrice: number;
   discount: number; stock: number; sold: number; status: "active"|"draft"; featured: boolean;
   category: string; tags: string[]; weight: string;
 }
-
-const SALES_DATA = [
-  { date:"Jun 18",revenue:1098,orders:2 },{ date:"Jun 19",revenue:2196,orders:4 },
-  { date:"Jun 20",revenue:549, orders:1 },{ date:"Jun 21",revenue:1647,orders:3 },
-  { date:"Jun 22",revenue:1098,orders:2 },{ date:"Jun 23",revenue:2745,orders:5 },
-  { date:"Jun 24",revenue:1647,orders:3 },{ date:"Jun 25",revenue:1098,orders:2 },
-  { date:"Jun 26",revenue:3294,orders:6 },{ date:"Jun 27",revenue:2196,orders:4 },
-  { date:"Jun 28",revenue:1647,orders:3 },{ date:"Jun 29",revenue:2745,orders:5 },
-  { date:"Jun 30",revenue:2196,orders:4 },{ date:"Jul 1", revenue:1647,orders:3 },
-];
 
 const DEVICE_DATA = [
   { name:"Mobile",  value:68, color:A.gold   },
@@ -335,6 +295,7 @@ export default function AdminLayout() {
   const [locked,      setLocked]      = useState(false);
   const [searchVal,   setSearchVal]   = useState("");
 const lockTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   // Guard — only redirect once we're SURE the login-check finished and failed.
   // Redirecting while adminAuthLoading is still true would kick out a
@@ -353,6 +314,23 @@ const lockTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const events = ["click", "keydown", "mousemove", "scroll"];
     events.forEach(e => window.addEventListener(e, resetTimer));
     return () => { events.forEach(e => window.removeEventListener(e, resetTimer)); if (lockTimer.current) clearTimeout(lockTimer.current); };
+  }, []);
+
+  // Close the notification bell on an outside click, and close both the
+  // bell and the mobile sidebar on Escape.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setNotifOpen(false); setMobileOpen(false); }
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   const SidebarContent = () => (
@@ -406,27 +384,6 @@ const lockTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   );
 
   if (adminAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
-        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
-      </div>
-    );
-  }
-if (adminAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
-        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
-      </div>
-    );
-  }
-  if (adminAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
-        <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
-      </div>
-    );
-  }
-   if (adminAuthLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: A.bg }}>
         <div style={{ fontFamily: F.serif, fontSize: "1.6rem", fontWeight: 700, color: A.gold, letterSpacing: "0.15em" }}>AB</div>
@@ -494,7 +451,7 @@ if (adminAuthLoading) {
             </div>
 
             {/* Notifications */}
-            <div className="relative">
+            <div className="relative" ref={notifRef}>
               <button onClick={() => setNotifOpen(!notifOpen)} className="relative p-2 hover:opacity-70 transition-opacity">
                 <Bell size={18} color={A.muted} />
                 {adminUnreadCount > 0 && (
@@ -578,15 +535,17 @@ export function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStatsType | null>(null);
 
   const [customers, setCustomers] = useState<AdminCustomerType[]>([]);
+  const [orders, setOrders] = useState<AdminOrderType[]>([]);
   useEffect(() => {
     fetchProducts().then(setProducts).catch(() => {});
     fetchDashboardStats().then(setStats).catch(() => {});
     fetchAdminCustomers().then(setCustomers).catch(() => {});
+    fetchOrders().then(setOrders).catch(() => {});
   }, []);
 
-  const totalRevenue = ADMIN_ORDERS.filter(o => o.status === "delivered").reduce((s, o) => s + o.total, 0);
-  const totalOrders  = ADMIN_ORDERS.length;
-  const pendingOrders = ADMIN_ORDERS.filter(o => ["pending","processing","packed"].includes(o.status)).length;
+  const totalRevenue = stats?.totalRevenue ?? 0;
+  const totalOrders  = stats?.totalOrders ?? orders.length;
+  const pendingOrders = stats?.pendingOrders ?? orders.filter(o => ["pending","processing","packed"].includes(o.status)).length;
   const lowStock     = stats?.lowStock ?? products.filter(p => p.stock < 20).length;
   return (
     <div>
@@ -625,7 +584,7 @@ export function AdminDashboard() {
         <ACard className="p-5 lg:col-span-2">
           <h3 style={{ fontFamily: F.serif, fontSize: "1rem", color: A.ivory, marginBottom: 16 }}>Revenue — Last 14 Days</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={SALES_DATA}>
+            <AreaChart data={stats?.revenueByDay ?? []}>
               <defs>
                 <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"   stopColor={A.gold} stopOpacity={0.25} />
@@ -671,16 +630,19 @@ export function AdminDashboard() {
             <ABtn variant="ghost" size="sm" onClick={() => navigate("/admin/orders")}>View All</ABtn>
           </div>
           <div className="space-y-2">
-            {ADMIN_ORDERS.slice(0, 5).map(o => (
+            {orders.slice(0, 5).map(o => (
               <div key={o.id} className="flex items-center gap-3 py-2" style={{ borderBottom: `1px solid ${A.border}` }}>
                 <div className="flex-1 min-w-0">
-                  <p style={{ fontFamily: F.sans, fontSize: "0.82rem", color: A.ivory, fontWeight: 600 }}>{o.id}</p>
+                  <p style={{ fontFamily: F.sans, fontSize: "0.82rem", color: A.ivory, fontWeight: 600 }}>{o.orderNumber}</p>
                   <p style={{ fontFamily: F.sans, fontSize: "0.72rem", color: A.muted }}>{o.customer} · {o.city}</p>
                 </div>
                 <ABadge status={o.status} />
                 <p style={{ fontFamily: F.serif, fontSize: "0.88rem", color: A.gold, flexShrink: 0 }}>Rs. {o.total.toLocaleString()}</p>
               </div>
             ))}
+            {orders.length === 0 && (
+              <p style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted }}>No orders yet.</p>
+            )}
           </div>
         </ACard>
 
@@ -767,6 +729,7 @@ export function AdminProducts() {
   const [deleteId, setDeleteId]   = useState<string | null>(null);
   const [saving,   setSaving]     = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
 
   const empty: AdminProductType = { id:"", name:"", subtitle:"", sku:"", price:0, oldPrice:0, discount:0, stock:0, sold:0, status:"active", featured:false, category:"", categoryName:"", tags:[], weight:"", imageUrl:null };
   const [form, setForm]  = useState<AdminProductType>(empty);
@@ -791,8 +754,8 @@ export function AdminProducts() {
     .filter(p => `${p.name} ${p.subtitle} ${p.sku}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => sortBy === "price" ? a.price - b.price : sortBy === "stock" ? a.stock - b.stock : a.name.localeCompare(b.name));
 
-  const openAdd  = () => { setForm({ ...empty, category: categories[0]?.id || "" }); setEditProduct(null); setImageFile(null); setShowForm(true); };
-  const openEdit = (p: AdminProductType) => { setForm(p); setEditProduct(p); setImageFile(null); setShowForm(true); };
+  const openAdd  = () => { setForm({ ...empty, category: categories[0]?.id || "" }); setEditProduct(null); setImageFile(null); setVideoFile(null); setShowForm(true); };
+  const openEdit = (p: AdminProductType) => { setForm(p); setEditProduct(p); setImageFile(null); setVideoFile(null); setShowForm(true); };
 
   const saveProduct = async () => {
     if (!form.name || !form.sku) { toast.error("Name and SKU are required"); return; }
@@ -801,11 +764,11 @@ export function AdminProducts() {
     setSaving(true);
     try {
       if (editProduct) {
-        const updated = await updateProductApi(editProduct.id, { ...form, imageFile });
+        const updated = await updateProductApi(editProduct.id, { ...form, imageFile, videoFile });
         setProducts(ps => ps.map(p => p.id === editProduct.id ? updated : p));
         toast.success("Product updated!");
       } else {
-        const created = await createProductApi({ ...form, imageFile });
+        const created = await createProductApi({ ...form, imageFile, videoFile });
         setProducts(ps => [...ps, created]);
         toast.success("Product added!");
       }
@@ -953,6 +916,10 @@ export function AdminProducts() {
           <div>
             <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>Product Image</label>
             <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} style={inp2} />
+          </div>
+          <div>
+            <label style={{ fontFamily: F.sans, fontSize: "0.7rem", letterSpacing: "0.18em", textTransform: "uppercase", color: A.muted, display: "block", marginBottom: 4 }}>Product Video (optional)</label>
+            <input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={e => setVideoFile(e.target.files?.[0] || null)} style={inp2} />
           </div>
           <div className="flex items-center gap-2 pt-4">
             <input type="checkbox" id="feat" checked={form.featured} onChange={e => setForm(f => ({ ...f, featured: e.target.checked }))} />
@@ -1210,7 +1177,14 @@ export function AdminOrders() {
                   <td className="p-4"><span style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted }}>{o.date}</span></td>
                   <td className="p-4"><span style={{ fontFamily: F.sans, fontSize: "0.84rem", color: A.text }}>{o.items}</span></td>
                   <td className="p-4"><span style={{ fontFamily: F.serif, fontSize: "0.9rem", color: A.gold, fontWeight: 700 }}>Rs. {o.total.toLocaleString()}</span></td>
-                  <td className="p-4"><span style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted }}>{o.payment}</span></td>
+                  <td className="p-4">
+                    <span style={{ fontFamily: F.sans, fontSize: "0.8rem", color: A.muted }}>{o.payment}</span>
+                    <span style={{
+                      fontFamily: F.sans, fontSize: "0.68rem", marginLeft: 6, padding: "1px 6px",
+                      color: o.paymentStatus === "paid" ? A.green2 : o.paymentStatus === "refunded" ? A.gold : o.paymentStatus === "failed" ? A.red : A.muted,
+                      border: `1px solid ${A.border}`, textTransform: "capitalize",
+                    }}>{o.paymentStatus}</span>
+                  </td>
                   <td className="p-4" onClick={e => e.stopPropagation()}>
                     <select value={o.status} onChange={e => changeStatus(o.id, e.target.value)}
                       style={{ fontSize: "0.75rem", fontFamily: F.sans, backgroundColor: A.bg, border: `1px solid ${A.border}`, color: STATUS[o.status]?.color ?? A.muted, padding: "4px 8px", outline: "none" }}>
@@ -1257,6 +1231,7 @@ export function AdminOrders() {
                   { label: "Phone",     val: detail.phone },
                   { label: "Address",   val: `${detail.address}, ${detail.city}, ${detail.province}` },
                   { label: "Payment",   val: detail.payment },
+                  { label: "Payment Status", val: detail.paymentStatus },
                   { label: "Items",     val: `${detail.items} item(s)` },
                   { label: "Total",     val: `Rs. ${detail.total.toLocaleString()}` },
                 ].map(({ label, val }) => (
@@ -1762,13 +1737,22 @@ export function AdminContent() {
 // ─── Admin Reports ────────────────────────────────────────────────────────────
 export function AdminReports() {
   const [products, setProducts] = useState<AdminProductType[]>([]);
+  const [stats, setStats] = useState<DashboardStatsType | null>(null);
+  const [customers, setCustomers] = useState<AdminCustomerType[]>([]);
   useEffect(() => {
     fetchProducts().then(setProducts).catch(() => {});
+    fetchDashboardStats().then(setStats).catch(() => {});
+    fetchAdminCustomers().then(setCustomers).catch(() => {});
   }, []);
   const [range, setRange] = useState("14d");
-  const totalRev  = SALES_DATA.reduce((s, d) => s + d.revenue, 0);
-  const totalOrds = SALES_DATA.reduce((s, d) => s + d.orders, 0);
-  const avgOrder  = Math.round(totalRev / totalOrds);
+  // NOTE: the range selector currently only affects this label — the backend's
+  // revenueByDay is a fixed trailing-14-day window. Wiring 7d/30d/all to a real
+  // date-ranged query is a bigger backend change than this pass covers; flagged
+  // separately rather than left silently broken.
+  const revenueByDay = stats?.revenueByDay ?? [];
+  const totalRev  = stats?.totalRevenue ?? 0;
+  const totalOrds = stats?.totalOrders ?? 0;
+  const avgOrder  = totalOrds > 0 ? Math.round(totalRev / totalOrds) : 0;
 
   return (
     <div>
@@ -1797,14 +1781,14 @@ export function AdminReports() {
         <KPICard label="Total Revenue"    value={`Rs. ${totalRev.toLocaleString()}`} icon={DollarSign} trend="up" trendVal="+12%"  color={A.gold} />
         <KPICard label="Total Orders"     value={String(totalOrds)}                   icon={ShoppingBag} trend="up" trendVal="+8%"  color={A.blue} />
         <KPICard label="Avg Order Value"  value={`Rs. ${avgOrder.toLocaleString()}`}  icon={TrendingUp}  trend="up" trendVal="+4%"  color={A.teal} />
-        <KPICard label="Customers"        value={String(ADMIN_CUSTOMERS.length)}      icon={Users}       trend="up" trendVal="+5"   color={A.green2} />
+        <KPICard label="Customers"        value={String(customers.length)}            icon={Users}       trend="up" trendVal="+5"   color={A.green2} />
       </div>
 
       {/* Revenue chart */}
       <ACard className="p-5 mb-6">
         <h3 style={{ fontFamily: F.serif, fontSize: "1rem", color: A.ivory, marginBottom: 16 }}>Revenue Overview</h3>
         <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={SALES_DATA}>
+          <AreaChart data={revenueByDay}>
             <defs>
               <linearGradient id="rg" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={A.gold} stopOpacity={0.3} />
@@ -1825,7 +1809,7 @@ export function AdminReports() {
         <ACard className="p-5">
           <h3 style={{ fontFamily: F.serif, fontSize: "1rem", color: A.ivory, marginBottom: 12 }}>Orders per Day</h3>
           <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={SALES_DATA.slice(-7)}>
+            <BarChart data={revenueByDay.slice(-7)}>
               <CartesianGrid strokeDasharray="3 3" stroke={A.border} />
               <XAxis dataKey="date" tick={{ fontFamily: F.sans, fontSize: 10, fill: A.muted }} />
               <YAxis tick={{ fontFamily: F.sans, fontSize: 10, fill: A.muted }} />

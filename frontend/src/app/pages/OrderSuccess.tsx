@@ -12,7 +12,7 @@ import { Check, Truck, Shield, RotateCcw, ChevronRight, Loader2, AlertCircle } f
 const MAX_ATTEMPTS = 8;
 const POLL_INTERVAL_MS = 1500;
 
-type ViewState = "loading" | "confirmed" | "pending" | "error";
+type ViewState = "loading" | "confirmed" | "pending" | "refunded" | "error";
 
 export default function OrderSuccess() {
   const navigate = useNavigate();
@@ -50,6 +50,16 @@ export default function OrderSuccess() {
             clearedRef.current = true;
             clearCart();
           }
+          return;
+        }
+
+        // Payment went through on Stripe but the item sold out before we could
+        // confirm the order — it was auto-refunded. Don't tell the customer
+        // "still processing" here; a refund email was already sent, but this
+        // page should say so too instead of looping until it times out.
+        if (data.order.payment_status === "refunded") {
+          setOrder(data.order);
+          setView("refunded");
           return;
         }
 
@@ -133,6 +143,32 @@ export default function OrderSuccess() {
           </button>
           <button onClick={() => navigate("/dashboard/orders")} className="px-6 py-3 text-sm uppercase tracking-widest border hover:bg-black/5 transition-colors"
             style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+            View Orders
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Refunded: item sold out before confirmation, payment was auto-refunded ──
+  if (view === "refunded") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center text-center px-4 pt-20" style={{ backgroundColor: C.ivory }}>
+        <AlertCircle size={48} color="#d4183d" className="mb-6" />
+        <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.8rem", color: C.green, marginBottom: 12 }}>
+          Order {orderNumber} was refunded
+        </h2>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted, marginBottom: 32, maxWidth: 420 }}>
+          We're sorry — an item in your order sold out just before we could confirm it, so your payment has been fully refunded.
+          It can take 5–10 business days to appear on your statement. We've also emailed you the details.
+        </p>
+        <div className="flex gap-3">
+          <button onClick={() => navigate("/shop")} className="px-6 py-3 text-sm uppercase tracking-widest border hover:bg-black/5 transition-colors"
+            style={{ borderColor: "rgba(26,61,43,0.25)", color: C.green, fontFamily: "'DM Sans',sans-serif" }}>
+            Continue Shopping
+          </button>
+          <button onClick={() => navigate("/dashboard/orders")} className="px-6 py-3 text-sm uppercase tracking-widest"
+            style={{ backgroundColor: C.green, color: C.ivory, fontFamily: "'DM Sans',sans-serif" }}>
             View Orders
           </button>
         </div>

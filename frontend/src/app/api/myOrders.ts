@@ -6,6 +6,7 @@ export interface MyOrder {
   total: number;
   status: string;       // raw backend status, used for filtering
   statusLabel: string;  // capitalized display label
+  paymentStatus: string; // 'unpaid' | 'paid' | 'refunded' | 'failed'
 }
 
 export async function fetchMyOrders(): Promise<MyOrder[]> {
@@ -16,5 +17,6 @@ export async function fetchMyOrders(): Promise<MyOrder[]> {
     total: Number(o.total),
     status: o.order_status,
     statusLabel: o.order_status.charAt(0).toUpperCase() + o.order_status.slice(1),
+    paymentStatus: o.payment_status,
   }));
 }

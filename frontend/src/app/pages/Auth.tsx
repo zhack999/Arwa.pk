@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Outlet, useNavigate, useLocation } from "react-router";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Outlet, useNavigate, useLocation, useSearchParams } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useStore, type User } from "../store";
@@ -8,6 +8,80 @@ import {
   Eye, EyeOff, Check, X, Mail, Phone, Lock, User as UserIcon,
   ArrowRight, ChevronLeft, Chrome, Facebook,
 } from "lucide-react";
+
+// ─── Google Identity Services / Facebook SDK loaders ──────────────────────────
+// Both scripts are loaded lazily (only once, cached on window) and only actually used
+// once the user clicks the corresponding button — so a customer who never touches
+// social login never pays for either SDK.
+declare global {
+  interface Window {
+    google?: any;
+    FB?: any;
+    fbAsyncInit?: () => void;
+  }
+}
+
+function loadScript(src: string, id: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.getElementById(id)) return resolve();
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.body.appendChild(script);
+  });
+}
+
+// Resolves with a Google OAuth2 access token (or rejects if the user closes the popup /
+// something goes wrong). Uses the token-client (popup) flow rather than rendering
+// Google's own button, so it can sit inside our custom-styled SocialButtons UI.
+async function getGoogleAccessToken(): Promise<string> {
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  if (!clientId) throw new Error("Google login isn't configured yet.");
+
+  await loadScript("https://accounts.google.com/gsi/client", "google-identity-script");
+
+  return new Promise((resolve, reject) => {
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: "openid email profile",
+      callback: (response: any) => {
+        if (response.error) reject(new Error("Google sign-in was cancelled or failed."));
+        else resolve(response.access_token);
+      },
+    });
+    client.requestAccessToken();
+  });
+}
+
+// Resolves with a Facebook access token via the FB JS SDK login popup.
+async function getFacebookAccessToken(): Promise<string> {
+  const appId = import.meta.env.VITE_FACEBOOK_APP_ID;
+  if (!appId) throw new Error("Facebook login isn't configured yet.");
+
+  if (!window.FB) {
+    await new Promise<void>((resolve) => {
+      window.fbAsyncInit = () => {
+        window.FB.init({ appId, version: "v19.0", cookie: true, xfbml: false });
+        resolve();
+      };
+      // Kick off the actual script load now that fbAsyncInit is registered.
+      // Previously this only ran *after* awaiting the promise above, so the
+      // script — and therefore fbAsyncInit — never actually fired. Deadlock.
+      loadScript("https://connect.facebook.net/en_US/sdk.js", "facebook-jssdk").catch(() => {});
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    window.FB.login((response: any) => {
+      if (response.authResponse?.accessToken) resolve(response.authResponse.accessToken);
+      else reject(new Error("Facebook sign-in was cancelled or failed."));
+    }, { scope: "email,public_profile" });
+  });
+}
 
 // ─── Password strength ────────────────────────────────────────────────────────
 function pwStrength(p: string) {
@@ -74,6 +148,41 @@ function Field({ icon: Icon, label, error, children }: { icon: any; label: strin
 
 // ─── Social buttons ────────────────────────────────────────────────────────────
 function SocialButtons() {
+  const { googleLogin, facebookLogin, authProviderConfig } = useStore();
+  const navigate = useNavigate();
+  const [loadingProvider, setLoadingProvider] = useState<"google" | "facebook" | null>(null);
+
+  // Still loading config, or neither provider is configured — nothing to show.
+  if (authProviderConfig && !authProviderConfig.google && !authProviderConfig.facebook) return null;
+
+  const handleGoogle = async () => {
+    setLoadingProvider("google");
+    try {
+      const accessToken = await getGoogleAccessToken();
+      await googleLogin(accessToken);
+      toast.success("Signed in with Google! 🌿");
+      navigate("/dashboard");
+    } catch (error: any) {
+      toast.error(error.message || "Google sign-in failed.");
+    } finally {
+      setLoadingProvider(null);
+    }
+  };
+
+  const handleFacebook = async () => {
+    setLoadingProvider("facebook");
+    try {
+      const accessToken = await getFacebookAccessToken();
+      await facebookLogin(accessToken);
+      toast.success("Signed in with Facebook! 🌿");
+      navigate("/dashboard");
+    } catch (error: any) {
+      toast.error(error.message || "Facebook sign-in failed.");
+    } finally {
+      setLoadingProvider(null);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center gap-3 my-5">
@@ -82,15 +191,19 @@ function SocialButtons() {
         <div className="flex-1 h-px" style={{ backgroundColor: "rgba(201,168,76,0.2)" }} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => toast.info("Google login coming soon!")} className="flex items-center justify-center gap-2 py-2.5 border hover:bg-white/5 transition-colors"
-          style={{ borderColor: "rgba(201,168,76,0.25)", color: C.ivory, fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-          Google
-        </button>
-        <button onClick={() => toast.info("Facebook login coming soon!")} className="flex items-center justify-center gap-2 py-2.5 border hover:bg-white/5 transition-colors"
-          style={{ borderColor: "rgba(201,168,76,0.25)", color: C.ivory, fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem" }}>
-          <Facebook size={16} color="#1877F2" fill="#1877F2" /> Facebook
-        </button>
+        {(!authProviderConfig || authProviderConfig.google) && (
+          <button onClick={handleGoogle} disabled={loadingProvider !== null} className="flex items-center justify-center gap-2 py-2.5 border hover:bg-white/5 transition-colors disabled:opacity-60"
+            style={{ borderColor: "rgba(201,168,76,0.25)", color: C.ivory, fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            {loadingProvider === "google" ? "Signing in…" : "Google"}
+          </button>
+        )}
+        {(!authProviderConfig || authProviderConfig.facebook) && (
+          <button onClick={handleFacebook} disabled={loadingProvider !== null} className="flex items-center justify-center gap-2 py-2.5 border hover:bg-white/5 transition-colors disabled:opacity-60"
+            style={{ borderColor: "rgba(201,168,76,0.25)", color: C.ivory, fontFamily: "'DM Sans',sans-serif", fontSize: "0.82rem" }}>
+            <Facebook size={16} color="#1877F2" fill="#1877F2" /> {loadingProvider === "facebook" ? "Signing in…" : "Facebook"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -103,7 +216,7 @@ export default function AuthLayout() {
   const isVerify = ["/auth/verify-email", "/auth/otp", "/auth/verify-phone"].some(p => location.pathname === p);
 
   return (
-    <div className="min-h-screen flex" style={{ backgroundColor: C.green }}>
+    <div className="min-h-screen flex pt-20" style={{ backgroundColor: C.green }}>
       {/* Left brand panel */}
       <div className="hidden lg:flex lg:w-2/5 xl:w-1/2 flex-col items-center justify-center relative overflow-hidden p-12" style={{ backgroundColor: C.dark }}>
         <div className="sun absolute inset-0 pointer-events-none" style={{ background: `radial-gradient(ellipse at 60% 30%, rgba(201,168,76,0.1) 0%, transparent 65%)` }} />
@@ -167,6 +280,14 @@ export function Login() {
       await customerLogin(email, pass);
       navigate("/dashboard");
     } catch (error: any) {
+      // Backend replies with this exact message when the account exists but hasn't been
+      // verified yet — route straight to the verify screen instead of leaving the
+      // customer stuck re-typing a password that isn't actually wrong.
+      if (error.message === "Please verify your email before logging in.") {
+        toast.info("Please verify your email to continue.");
+        navigate(`/auth/verify-email?email=${encodeURIComponent(email)}`);
+        return;
+      }
       setErr(error.message || "Invalid email or password.");
     } finally {
       setLoading(false);
@@ -236,11 +357,12 @@ export function Register() {
     e.preventDefault();
     if (pass !== conf) { toast.error("Passwords do not match"); return; }
     if (!terms) { toast.error("Please accept the terms"); return; }
-    if (strength.pct < 50) { toast.error("Password too weak"); return; }
+    if (strength.pct < 100) { toast.error("Password must include uppercase, lowercase, a number, and a special character."); return; }
     setLoading(true);
     try {
-      await customerRegister(name, email, phone, pass);
-      navigate("/dashboard"); // real email verification isn't built yet, so we skip straight in
+      const { email: registeredEmail } = await customerRegister(name, email, phone, pass);
+      toast.success("Account created! Check your email for a verification code.");
+      navigate(`/auth/verify-email?email=${encodeURIComponent(registeredEmail)}`);
     } catch (error: any) {
       toast.error(error.message || "Failed to create account.");
     } finally {
@@ -318,13 +440,25 @@ export function Register() {
 // ─── Forgot Password ──────────────────────────────────────────────────────────
 export function ForgotPassword() {
   const navigate = useNavigate();
+  const { requestPasswordReset } = useStore();
   const [email, setEmail] = useState("");
   const [sent, setSent]   = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handle = (e: React.FormEvent) => {
+  const handle = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSent(true);
-    toast.success("Reset code sent to your email!");
+    setLoading(true);
+    try {
+      const message = await requestPasswordReset(email);
+      setSent(true);
+      toast.success(message);
+    } catch (error: any) {
+      // The backend deliberately never says "email not found" — any error here is a
+      // genuine problem (network, rate limit), not a wrong email.
+      toast.error(error.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -341,18 +475,18 @@ export function ForgotPassword() {
             <Mail size={24} color={C.gold} />
           </div>
           <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", color: C.ivory, marginBottom: 8 }}>Check Your Email</p>
-          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.55)", marginBottom: 20 }}>We sent a 6-digit OTP to <strong style={{ color: C.gold }}>{email}</strong></p>
-          <button onClick={() => navigate("/auth/otp")} className="w-full py-3.5 text-sm uppercase tracking-widest"
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.55)", marginBottom: 20 }}>If an account exists for <strong style={{ color: C.gold }}>{email}</strong>, we've sent it a 6-digit code.</p>
+          <button onClick={() => navigate("/auth/otp", { state: { email } })} className="w-full py-3.5 text-sm uppercase tracking-widest"
             style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Enter OTP Code</button>
-          <button onClick={() => setSent(false)} className="mt-3 text-xs hover:opacity-60" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.35)" }}>Resend email</button>
+          <button onClick={() => setSent(false)} className="mt-3 text-xs hover:opacity-60" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.35)" }}>Use a different email</button>
         </div>
       ) : (
         <form onSubmit={handle} className="space-y-4">
           <Field icon={Mail} label="Email Address">
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" style={gInput} required />
           </Field>
-          <button type="submit" className="w-full py-3.5 text-sm font-medium uppercase tracking-widest"
-            style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Send Reset Code</button>
+          <button type="submit" disabled={loading} className="w-full py-3.5 text-sm font-medium uppercase tracking-widest disabled:opacity-60"
+            style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>{loading ? "Sending..." : "Send Reset Code"}</button>
         </form>
       )}
     </div>
@@ -360,20 +494,43 @@ export function ForgotPassword() {
 }
 
 // ─── Reset Password ───────────────────────────────────────────────────────────
+// Reached only from VerifyOTP with a resetToken in router state — proves the person
+// already entered a valid OTP for this email. No token in state means they navigated
+// here directly, so we bounce them back to start the flow properly.
 export function ResetPassword() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { resetPassword } = useStore();
+  const resetToken = (location.state as { resetToken?: string } | null)?.resetToken;
   const [pass, setPass] = useState("");
   const [conf, setConf] = useState("");
   const [done, setDone] = useState(false);
+  const [loading, setLoading] = useState(false);
   const strength = pwStrength(pass);
 
-  const handle = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!resetToken) {
+      toast.error("Please request a password reset code first.");
+      navigate("/auth/forgot");
+    }
+  }, [resetToken, navigate]);
+
+  const handle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (pass !== conf) { toast.error("Passwords do not match"); return; }
-    if (strength.pct < 50) { toast.error("Password too weak"); return; }
-    setDone(true);
-    toast.success("Password reset successfully!");
-    setTimeout(() => navigate("/auth/login"), 2000);
+    if (strength.pct < 100) { toast.error("Password must include uppercase, lowercase, a number, and a special character."); return; }
+    if (!resetToken) return;
+    setLoading(true);
+    try {
+      await resetPassword(resetToken, pass);
+      setDone(true);
+      toast.success("Password reset successfully!");
+      setTimeout(() => navigate("/auth/login"), 2000);
+    } catch (error: any) {
+      toast.error(error.message || "This reset link has expired — please start again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -401,7 +558,7 @@ export function ResetPassword() {
             <input type="password" value={conf} onChange={e => setConf(e.target.value)} placeholder="Re-enter password" style={{ ...gInput, paddingRight: 40 }} required />
             {conf && <span className="absolute right-3 top-1/2 -translate-y-1/2">{pass === conf ? <Check size={15} color="#22c55e" /> : <X size={15} color="#f87171" />}</span>}
           </Field>
-          <button type="submit" className="w-full py-3.5 text-sm font-medium uppercase tracking-widest" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Reset Password</button>
+          <button type="submit" disabled={loading} className="w-full py-3.5 text-sm font-medium uppercase tracking-widest disabled:opacity-60" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>{loading ? "Resetting..." : "Reset Password"}</button>
         </form>
       )}
     </div>
@@ -411,9 +568,17 @@ export function ResetPassword() {
 // ─── Verify Email ─────────────────────────────────────────────────────────────
 export function VerifyEmail() {
   const navigate  = useNavigate();
-  const { user }  = useStore();
+  const [searchParams] = useSearchParams();
+  const { user, verifyEmailOtp, verifyEmailToken, resendVerification } = useStore();
+  // Email comes from the query string (?email=... — set by Register or by Login when it
+  // detects an unverified account), falling back to the logged-in user if somehow present.
+  const email = searchParams.get("email") || user?.email || "";
+  const linkToken = searchParams.get("token");
+
   const [verified, setVerified] = useState(false);
-  const [countdown, setCountdown] = useState(30);
+  const [countdown, setCountdown] = useState(60);
+  const [verifying, setVerifying] = useState(false);
+  const [autoVerifyDone, setAutoVerifyDone] = useState(false);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -421,8 +586,40 @@ export function VerifyEmail() {
     return () => clearInterval(id);
   }, [countdown]);
 
-  const handleComplete = (_: string) => {
-    setTimeout(() => { setVerified(true); toast.success("Email verified! 🎉"); }, 600);
+  // If the email carried a ?token= (the person clicked the link in the email instead of
+  // typing the OTP), verify automatically on load rather than making them type digits too.
+  useEffect(() => {
+    if (linkToken && email && !autoVerifyDone) {
+      setAutoVerifyDone(true);
+      verifyEmailToken(email, linkToken)
+        .then(() => { setVerified(true); toast.success("Email verified! 🎉"); })
+        .catch((error: any) => toast.error(error.message || "This verification link is invalid or expired."));
+    }
+  }, [linkToken, email, autoVerifyDone, verifyEmailToken]);
+
+  const handleComplete = async (otp: string) => {
+    if (!email) { toast.error("Missing email — please register again."); return; }
+    setVerifying(true);
+    try {
+      await verifyEmailOtp(email, otp);
+      setVerified(true);
+      toast.success("Email verified! 🎉");
+    } catch (error: any) {
+      toast.error(error.message || "Invalid or expired code.");
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!email) return;
+    try {
+      const message = await resendVerification(email);
+      toast.success(message);
+      setCountdown(60);
+    } catch (error: any) {
+      toast.error(error.message || "Couldn't resend code.");
+    }
   };
 
   return (
@@ -432,7 +629,7 @@ export function VerifyEmail() {
       </div>
       <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.8rem", fontWeight: 700, color: C.ivory, marginBottom: 6 }}>Verify Your Email</h2>
       <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)", marginBottom: 24 }}>
-        We sent a 6-digit code to <strong style={{ color: C.gold }}>{user?.email || "your email"}</strong>
+        We sent a 6-digit code to <strong style={{ color: C.gold }}>{email || "your email"}</strong>
       </p>
 
       {verified ? (
@@ -441,34 +638,61 @@ export function VerifyEmail() {
             <Check size={22} color={C.green} />
           </div>
           <p style={{ fontFamily: "'Playfair Display',serif", fontSize: "1.1rem", color: C.ivory }}>Email Verified!</p>
-          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)", marginTop: 6, marginBottom: 16 }}>Welcome to Arwa Botaniqs, {user?.name}!</p>
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.84rem", color: "rgba(245,240,232,0.5)", marginTop: 6, marginBottom: 16 }}>Welcome to Arwa Botaniqs{user?.name ? `, ${user.name}` : ""}!</p>
           <button onClick={() => navigate("/dashboard")} className="w-full py-3.5 text-sm uppercase tracking-widest" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Go to Dashboard</button>
         </div>
       ) : (
         <div>
           <OTPBoxes onComplete={handleComplete} />
+          {verifying && <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: "rgba(245,240,232,0.4)", marginTop: 10 }}>Verifying…</p>}
           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: "rgba(245,240,232,0.4)", marginTop: 16 }}>
             {countdown > 0 ? `Resend code in ${countdown}s` : (
-              <button onClick={() => setCountdown(30)} style={{ color: C.gold }} className="hover:opacity-70">Resend code</button>
+              <button onClick={handleResend} style={{ color: C.gold }} className="hover:opacity-70">Resend code</button>
             )}
           </p>
-          <button onClick={() => navigate("/dashboard")} className="mt-4 text-xs hover:opacity-60" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.35)" }}>Skip for now</button>
+          <button onClick={() => navigate("/auth/login")} className="mt-4 text-xs hover:opacity-60" style={{ fontFamily: "'DM Sans',sans-serif", color: "rgba(245,240,232,0.35)" }}>Back to login</button>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Verify OTP ───────────────────────────────────────────────────────────────
+// ─── Verify OTP (password reset) ───────────────────────────────────────────────
 export function VerifyOTP() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { verifyResetOtp } = useStore();
+  const email = (location.state as { email?: string } | null)?.email;
   const [done, setDone] = useState(false);
-  const [countdown, setCountdown] = useState(30);
+  const [countdown, setCountdown] = useState(60);
+  const [verifying, setVerifying] = useState(false);
+
+  useEffect(() => {
+    if (!email) {
+      toast.error("Please request a password reset code first.");
+      navigate("/auth/forgot");
+    }
+  }, [email, navigate]);
 
   useEffect(() => {
     const id = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const handleComplete = async (otp: string) => {
+    if (!email) return;
+    setVerifying(true);
+    try {
+      const resetToken = await verifyResetOtp(email, otp);
+      setDone(true);
+      // Small delay so the "Verified!" state is visible before navigating away.
+      setTimeout(() => navigate("/auth/reset", { state: { resetToken } }), 500);
+    } catch (error: any) {
+      toast.error(error.message || "Invalid or expired code.");
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   return (
     <div className="text-center">
@@ -478,13 +702,15 @@ export function VerifyOTP() {
         <div className="py-4">
           <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: C.gold }}><Check size={22} color={C.green} /></div>
           <p style={{ fontFamily: "'Playfair Display',serif", color: C.ivory, fontSize: "1.1rem" }}>Verified!</p>
-          <button onClick={() => navigate("/auth/reset")} className="w-full mt-5 py-3.5 text-sm uppercase tracking-widest" style={{ backgroundColor: C.gold, color: C.green, fontFamily: "'DM Sans',sans-serif" }}>Set New Password</button>
         </div>
       ) : (
         <div>
-          <OTPBoxes onComplete={() => setTimeout(() => setDone(true), 500)} />
+          <OTPBoxes onComplete={handleComplete} />
+          {verifying && <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: "rgba(245,240,232,0.4)", marginTop: 10 }}>Verifying…</p>}
           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: "rgba(245,240,232,0.4)", marginTop: 16 }}>
-            {countdown > 0 ? `Resend in ${countdown}s` : <button onClick={() => setCountdown(30)} style={{ color: C.gold }}>Resend OTP</button>}
+            {countdown > 0 ? `Resend in ${countdown}s` : (
+              <button onClick={() => email && navigate("/auth/forgot")} style={{ color: C.gold }}>Request a new code</button>
+            )}
           </p>
         </div>
       )}

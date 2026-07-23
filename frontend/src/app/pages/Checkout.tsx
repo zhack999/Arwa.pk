@@ -4,7 +4,13 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useStore } from "../store";
 import { placeOrder } from "../api/checkout";
-import { createStripeCheckoutSession } from "../api/payments";
+import {
+  createStripeCheckoutSession,
+  createJazzCashCheckout,
+  createEasypaisaCheckout,
+  fetchPaymentConfig,
+  type PaymentGatewayConfig,
+} from "../api/payments";
 import { fetchProductStockBySlug } from "../api/products";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { C, FadeIn, StarRating } from "../shared";
@@ -16,6 +22,26 @@ const SHIPPING  = 300;
 const COUPONS: Record<string, number> = { ARWA10: 10, WELCOME: 15, BOTANIQ: 20 };
 
 type PayMethod = "cod" | "jazzcash" | "easypaisa" | "card";
+
+// JazzCash and Easypaisa are hosted "Page Post" checkouts — unlike Stripe, there's no
+// URL to just redirect to. The gateway expects a real HTML form POST containing the
+// signed fields the backend generated. This builds that form off-screen and submits it,
+// which navigates the browser away exactly like window.location.href does for Stripe.
+function autoPostRedirect(url: string, fields: Record<string, string>) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = url;
+  form.style.display = "none";
+  Object.entries(fields).forEach(([name, value]) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value ?? "";
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
 
 interface CustomerInfo {
   fullName: string;
@@ -129,21 +155,31 @@ function Step1({ info, setInfo, onNext }: { info: CustomerInfo; setInfo: (i: Cus
 }
 
 // ─── Step 2: Payment ──────────────────────────────────────────────────────────
-// jazzcash/easypaisa scaffolds exist on the backend but need real merchant
-// credentials before they can go live — disabled in the UI until then.
-const PAY_METHODS: { id: PayMethod; label: string; desc: string; icon: string; available: boolean }[] = [
-  { id: "cod",       label: "Cash on Delivery",    desc: "Pay in cash when your order arrives.",      icon: "💵", available: true },
-  { id: "card",      label: "Debit / Credit Card", desc: "Pay securely via Stripe — Visa, Mastercard, and all major cards.", icon: "💳", available: true },
-  { id: "jazzcash",  label: "JazzCash",             desc: "Coming soon.",                              icon: "📱", available: false },
-  { id: "easypaisa", label: "EasyPaisa",            desc: "Coming soon.",                              icon: "🟢", available: false },
+// Availability is driven by the live /payments/config response (gatewayConfig prop)
+// rather than hardcoded here — a gateway shows as available in the UI (per the
+// requirement to remove "Coming Soon"), but if its merchant credentials aren't actually
+// configured on the backend yet, gatewayConfig marks it unavailable with a clear message
+// instead of letting the customer hit a broken/silent failure at "Proceed to Payment".
+const PAY_METHODS_BASE: { id: PayMethod; label: string; desc: string; icon: string }[] = [
+  { id: "cod",       label: "Cash on Delivery",    desc: "Pay in cash when your order arrives.", icon: "💵" },
+  { id: "card",      label: "Debit / Credit Card", desc: "Pay securely via Stripe — Visa, Mastercard, and all major cards.", icon: "💳" },
+  { id: "jazzcash",  label: "JazzCash",             desc: "Pay with your JazzCash mobile account.", icon: "📱" },
+  { id: "easypaisa", label: "EasyPaisa",            desc: "Pay with your Easypaisa mobile account.", icon: "🟢" },
 ];
 
-function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc, cartTotal, onBack, onPlace, placing, blocked }: {
+function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc, cartTotal, onBack, onPlace, placing, blocked, gatewayConfig }: {
   method: PayMethod; setMethod: (m: PayMethod) => void;
   coupon: string; setCoupon: (c: string) => void;
   couponDisc: number; setCouponDisc: (d: number) => void;
   cartTotal: number; onBack: () => void; onPlace: () => void; placing: boolean; blocked?: boolean;
+  gatewayConfig: PaymentGatewayConfig | null;
 }) {
+  // While config is still loading, assume unavailable rather than briefly showing a
+  // method as clickable and then yanking it away once the real config arrives.
+  const PAY_METHODS = PAY_METHODS_BASE.map(m => ({
+    ...m,
+    available: gatewayConfig ? gatewayConfig[m.id === "card" ? "stripe" : m.id] : false,
+  }));
   const [couponInput, setCouponInput] = useState("");
   const [terms, setTerms]             = useState(false);
 
@@ -188,11 +224,13 @@ function Step2({ method, setMethod, coupon, setCoupon, couponDisc, setCouponDisc
                   <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.9rem", fontWeight: 600, color: C.green }}>{m.label}</span>
                   {!m.available && (
                     <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.62rem", letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted, border: "1px solid rgba(26,61,43,0.25)", padding: "2px 6px" }}>
-                      Coming Soon
+                      Unavailable
                     </span>
                   )}
                 </div>
-                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 2 }}>{m.desc}</p>
+                <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted, marginTop: 2 }}>
+                  {!m.available ? "Not configured yet — please choose another method." : m.desc}
+                </p>
               </div>
             </label>
           ))}
@@ -345,6 +383,13 @@ export default function Checkout() {
 
   const [stockIssues, setStockIssues] = useState<Record<string, number>>({}); // productId -> available qty
   const [checkingStock, setCheckingStock] = useState(false);
+  const [gatewayConfig, setGatewayConfig] = useState<PaymentGatewayConfig | null>(null);
+
+  useEffect(() => {
+    fetchPaymentConfig()
+      .then(setGatewayConfig)
+      .catch(() => setGatewayConfig({ stripe: true, jazzcash: false, easypaisa: false, cod: true })); // fail safe: don't block COD/card if the config check itself fails
+  }, []);
 
   useEffect(() => {
     if (cart.length === 0) return;
@@ -399,6 +444,16 @@ export default function Checkout() {
         // cancels, /order-cancel needs the cart still intact.
         const url = await createStripeCheckoutSession(result.id);
         window.location.href = url;
+        return;
+      }
+
+      if (payMethod === "jazzcash" || payMethod === "easypaisa") {
+        // Same "don't clear cart / don't advance step yet" reasoning as the Stripe path
+        // above — but JazzCash/Easypaisa need a real form POST, not a URL redirect.
+        const session = payMethod === "jazzcash"
+          ? await createJazzCashCheckout(result.id)
+          : await createEasypaisaCheckout(result.id);
+        autoPostRedirect(session.url, session.fields);
         return;
       }
 
@@ -462,6 +517,7 @@ export default function Checkout() {
                     cartTotal={cartTotal}
                     onBack={() => setStep(0)}
                     onPlace={handlePlaceOrder}
+                    gatewayConfig={gatewayConfig}
                     placing={placing}
                     blocked={checkingStock || Object.keys(stockIssues).length > 0}
                   />

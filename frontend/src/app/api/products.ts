@@ -23,6 +23,7 @@ export interface BackendProduct {
   status: boolean;             // true = active, false = draft
   image_url: string | null;
   image_public_id: string | null;
+  video_url?: string | null;
   // Present in the DB row (SELECT p.*) but not previously surfaced here —
   // needed for the customer-facing storefront mapper below.
   ingredients?: string | null;
@@ -80,7 +81,7 @@ export async function fetchProducts(): Promise<AdminProduct[]> {
 }
 
 // Builds the multipart form the backend expects, from the AdminProduct form shape
-function buildProductFormData(form: AdminProduct & { imageFile?: File | null }): FormData {
+function buildProductFormData(form: AdminProduct & { imageFile?: File | null; videoFile?: File | null }): FormData {
   const fd = new FormData();
   fd.append("category_id", form.category);
   fd.append("name", form.name);
@@ -97,15 +98,16 @@ function buildProductFormData(form: AdminProduct & { imageFile?: File | null }):
   fd.append("status", String(form.status === "active")); // "active" -> "true", "draft" -> "false"
   fd.append("weight", form.weight);
   if (form.imageFile) fd.append("image", form.imageFile);
+  if (form.videoFile) fd.append("video", form.videoFile);
   return fd;
 }
 
-export async function createProduct(form: AdminProduct & { imageFile?: File | null }): Promise<AdminProduct> {
+export async function createProduct(form: AdminProduct & { imageFile?: File | null; videoFile?: File | null }): Promise<AdminProduct> {
   const data = await apiFetch("/products", { method: "POST", body: buildProductFormData(form) });
   return toAdminProduct(data.product);
 }
 
-export async function updateProduct(id: string, form: AdminProduct & { imageFile?: File | null }): Promise<AdminProduct> {
+export async function updateProduct(id: string, form: AdminProduct & { imageFile?: File | null; videoFile?: File | null }): Promise<AdminProduct> {
   const data = await apiFetch(`/products/${id}`, { method: "PUT", body: buildProductFormData(form) });
   return toAdminProduct(data.product);
 }
@@ -186,10 +188,14 @@ function isRecent(created_at?: string, days = 14): boolean {
   return ageMs >= 0 && ageMs <= days * 24 * 60 * 60 * 1000;
 }
 
+interface StorefrontProduct extends Product {
+  videoUrl?: string | null;
+}
+
 export function toStorefrontProduct(p: BackendProduct): Product {
   const price = Number(p.price) || 0;
   const oldPrice = Number(p.old_price) || price;
-  return {
+  const storefrontProduct: StorefrontProduct = {
     id: p.id,
     slug: p.slug,
     name: p.name,
@@ -215,7 +221,9 @@ export function toStorefrontProduct(p: BackendProduct): Product {
     isBestSeller: (p.sold ?? 0) > 15,
     isFeatured: !!p.featured,
     imageUrl: p.image_url,
+    videoUrl: p.video_url ?? null,
   };
+  return storefrontProduct;
 }
 
 // All active products, mapped for the storefront. Used by Home/Shop/Root/

@@ -30,6 +30,7 @@ export interface AdminOrder {
   items: number;
   total: number;
   payment: string;
+  paymentStatus: string; // 'unpaid' | 'paid' | 'refunded' | 'failed'
   status: string;
   adminNote: string;
 }
@@ -47,6 +48,7 @@ function toAdminOrder(o: any): AdminOrder {
     items: o.item_count ?? 0,
     total: Number(o.total),
     payment: o.payment_method === "cod" ? "Cash on Delivery" : o.payment_method,
+    paymentStatus: o.payment_status,
     status: o.order_status,
     adminNote: o.notes || "",
   };

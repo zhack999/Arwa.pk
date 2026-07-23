@@ -35,6 +35,7 @@ export interface Product {
   isFeatured: boolean;
   slug: string;
   imageUrl?: string | null; // real Cloudinary image from the backend, if any
+  videoUrl?: string | null; // real Cloudinary video from the backend, if any
 }
 
 export interface Review {

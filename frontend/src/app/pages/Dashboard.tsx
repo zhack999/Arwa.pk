@@ -1,5 +1,6 @@
 import { updateProfileApi, changePasswordApi, uploadProfilePictureApi, removeProfilePictureApi } from "../api/profile";
 import { fetchAddresses, addAddressApi, updateAddressApi, deleteAddressApi, setDefaultAddressApi, type Address } from "../api/addresses";
+import { fetchNotifications, markNotificationRead, markAllNotificationsRead, type Notification as NotificationType } from "../api/notifications";
 import { useState, useEffect } from "react";
 import { fetchMyOrders, type MyOrder } from "../api/myOrders";
 import { Outlet, useNavigate, useLocation } from "react-router";
@@ -16,23 +17,6 @@ import {
 } from "lucide-react";
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
-const MOCK_ORDERS = [
-  { id: "ARW-241567", date: "July 1, 2026", status: "shipped", statusLabel: "Shipped", items: [{ name: "Arwa Botaniqs Beauty Soap", qty: 2, price: 549 }], total: 1398, address: "Gulberg III, Lahore", tracking: "TCS-9821" },
-  { id: "ARW-189034", date: "June 15, 2026", status: "delivered", statusLabel: "Delivered", items: [{ name: "Arwa Botaniqs Beauty Soap", qty: 1, price: 549 }], total: 849, address: "DHA Phase 5, Karachi", tracking: "TCS-8234" },
-  { id: "ARW-156789", date: "June 3, 2026", status: "delivered", statusLabel: "Delivered", items: [{ name: "Arwa Botaniqs Beauty Soap", qty: 3, price: 549 }], total: 1947, address: "F-7, Islamabad", tracking: "TCS-7654" },
-];
-
-const MOCK_NOTIFICATIONS = [
-  { id: "1", type: "order", icon: Package, title: "Order Shipped", msg: "Your order ARW-241567 has been shipped via TCS Courier.", time: "2 hours ago", read: false },
-  { id: "2", type: "promo", icon: Tag, title: "Special Offer", msg: "Get 15% off your next order! Use code WELCOME at checkout.", time: "1 day ago", read: false },
-  { id: "3", type: "reward", icon: Award, title: "Points Earned", msg: "You earned 50 reward points from your last purchase.", time: "5 days ago", read: true },
-  { id: "4", type: "system", icon: Bell, title: "Account Created", msg: "Welcome to Arwa Botaniqs! Your account is ready.", time: "June 15, 2026", read: true },
-];
-
-const MOCK_ADDRESSES = [
-  { id: "1", label: "Home", name: "Ayesha Khan", phone: "+92 314 0628188", address: "House 45, Street 7, Gulberg III", city: "Lahore", province: "Punjab", postal: "54000", isDefault: true },
-  { id: "2", label: "Office", name: "Ayesha Khan", phone: "+92 314 0628188", address: "Office 302, MM Towers, Blue Area", city: "Islamabad", province: "Islamabad (ICT)", postal: "44000", isDefault: false },
-];
 
 const MOCK_COUPONS = [
   { code: "ARWA10", discount: 10, type: "percent" as const, expiry: "July 31, 2026", uses: 3, maxUses: 5 },
@@ -75,10 +59,23 @@ const SIDEBAR_LINKS = [
 
 // ─── Dashboard Layout ─────────────────────────────────────────────────────────
 export default function DashboardLayout() {
-  const { user, isAuthenticated, logout } = useStore();
+  const { user, isAuthenticated, customerAuthLoading, logout } = useStore();
   const navigate  = useNavigate();
   const location  = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Still asking the backend "is this cookie still valid?" — don't flash the
+  // sign-in screen while that's in flight, or every refresh looks like a logout.
+  if (customerAuthLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: C.ivory }}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full animate-spin" style={{ border: `3px solid rgba(26,61,43,0.15)`, borderTopColor: C.green }} />
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted }}>Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated || !user) {
     return (
@@ -194,8 +191,14 @@ export function DashboardHome() {
   const { user, wishlistCount } = useStore();
   const navigate = useNavigate();
   const [recentOrders, setRecentOrders] = useState<MyOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
 
-  useEffect(() => { fetchMyOrders().then(setRecentOrders).catch(() => {}); }, []);
+  useEffect(() => {
+    fetchMyOrders()
+      .then(setRecentOrders)
+      .catch(() => toast.error("Couldn't load your recent orders."))
+      .finally(() => setOrdersLoading(false));
+  }, []);
 
   const stats = [
     { label: "Total Orders",    value: recentOrders.length, icon: ShoppingBag, color: C.green,  href: "/dashboard/orders" },
@@ -239,17 +242,26 @@ export function DashboardHome() {
           <button onClick={() => navigate("/dashboard/orders")} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.gold }} className="hover:opacity-70">View all →</button>
         </div>
         <div className="space-y-3">
-          {recentOrders.slice(0, 2).map(order => (
+          {ordersLoading ? (
+            [0, 1].map(i => <div key={i} className="h-16 animate-pulse" style={{ backgroundColor: "rgba(26,61,43,0.06)" }} />)
+          ) : recentOrders.length === 0 ? (
+            <div className="p-6 text-center" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
+              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.85rem", color: C.muted }}>No orders yet — your first order will show up here.</p>
+              <button onClick={() => navigate("/shop")} className="mt-3 text-xs uppercase tracking-widest hover:opacity-70" style={{ color: C.gold, fontFamily: "'DM Sans',sans-serif" }}>Start Shopping →</button>
+            </div>
+          ) : (
+            recentOrders.slice(0, 2).map(order => (
             <div key={order.id} className="flex items-center justify-between p-4" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
               <div>
                 <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", fontWeight: 600, color: C.green }}>{order.id}</p>
                 <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.75rem", color: C.muted }}>{order.date} · Rs. {order.total.toLocaleString()}</p>
               </div>
               <span className="px-2.5 py-1 text-xs" style={{ backgroundColor: `${STATUS_COLORS[order.status]}18`, color: STATUS_COLORS[order.status], fontFamily: "'DM Sans',sans-serif", border: `1px solid ${STATUS_COLORS[order.status]}40` }}>
-                {order.statusLabel}
+                {order.status === "cancelled" && order.paymentStatus === "refunded" ? "Refunded" : order.statusLabel}
               </span>
             </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
 
@@ -481,7 +493,14 @@ export function DashboardOrders() {
   const orders = filter === "all" ? allOrders : allOrders.filter(o => o.status === filter);
 
   if (loading) {
-    return <div className="py-16 text-center" style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted }}>Loading your orders...</div>;
+    return (
+      <div>
+        <PageHead title="My Orders" sub="Track and manage your orders" />
+        <div className="space-y-4">
+          {[0, 1, 2].map(i => <div key={i} className="h-28 animate-pulse" style={{ backgroundColor: "rgba(26,61,43,0.06)" }} />)}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -511,7 +530,7 @@ export function DashboardOrders() {
                   <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.78rem", color: C.muted }}>Placed on {order.date}</p>
                 </div>
                 <span className="px-3 py-1 text-xs font-medium" style={{ backgroundColor: `${STATUS_COLORS[order.status]}15`, color: STATUS_COLORS[order.status], border: `1px solid ${STATUS_COLORS[order.status]}40`, fontFamily: "'DM Sans',sans-serif" }}>
-                  {order.statusLabel}
+                  {order.status === "cancelled" && order.paymentStatus === "refunded" ? "Refunded" : order.statusLabel}
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-4 pt-4" style={{ borderTop: `1px solid rgba(201,168,76,0.15)` }}>
@@ -723,7 +742,14 @@ export function DashboardAddresses() {
   };
 
   if (loading) {
-    return <div style={{ fontFamily: "'DM Sans',sans-serif", color: C.muted, padding: 40, textAlign: "center" }}>Loading addresses...</div>;
+    return (
+      <div>
+        <PageHead title="Saved Addresses" sub="Manage your delivery addresses" />
+        <div className="grid sm:grid-cols-2 gap-5">
+          {[0, 1].map(i => <div key={i} className="h-40 animate-pulse" style={{ backgroundColor: "rgba(26,61,43,0.06)" }} />)}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -800,34 +826,90 @@ export function DashboardPayments() {
   );
 }
 
+function notifIcon(type: string) {
+  if (type === "order") return Package;
+  if (type === "promo") return Tag;
+  if (type === "reward") return Award;
+  return Bell;
+}
+
+function timeAgo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 export function DashboardNotifications() {
-  const [notifs, setNotifs] = useState(MOCK_NOTIFICATIONS);
-  const markAll = () => setNotifs(n => n.map(x => ({ ...x, read: true })));
+  const [notifs, setNotifs] = useState<NotificationType[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchNotifications()
+      .then(setNotifs)
+      .catch(() => toast.error("Couldn't load notifications."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const markAll = () => {
+    setNotifs(n => n.map(x => ({ ...x, is_read: true })));
+    markAllNotificationsRead().catch(() => toast.error("Couldn't mark all as read."));
+  };
+
+  const markOne = (id: string) => {
+    setNotifs(prev => prev.map(x => x.id === id ? { ...x, is_read: true } : x));
+    markNotificationRead(id).catch(() => {});
+  };
+
+  if (loading) {
+    return (
+      <div>
+        <PageHead title="Notifications" sub="Loading..." />
+        <div className="space-y-3">
+          {[0, 1, 2].map(i => <div key={i} className="h-16 animate-pulse" style={{ backgroundColor: "rgba(26,61,43,0.06)" }} />)}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <div className="flex items-start justify-between mb-8">
-        <PageHead title="Notifications" sub={`${notifs.filter(n => !n.read).length} unread`} />
+        <PageHead title="Notifications" sub={`${notifs.filter(n => !n.is_read).length} unread`} />
         <button onClick={markAll} className="text-xs hover:opacity-70 mt-2" style={{ fontFamily: "'DM Sans',sans-serif", color: C.gold }}>Mark all read</button>
       </div>
-      <div className="space-y-3">
-        {notifs.map(n => (
-          <div key={n.id} onClick={() => setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x))}
-            className="flex items-start gap-4 p-4 cursor-pointer hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: n.read ? C.cream : "rgba(201,168,76,0.06)", border: `1px solid ${n.read ? "rgba(201,168,76,0.18)" : "rgba(201,168,76,0.35)"}` }}>
-            <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: n.read ? "rgba(201,168,76,0.08)" : "rgba(201,168,76,0.18)" }}>
-              <n.icon size={16} color={C.gold} />
-            </div>
-            <div className="flex-1">
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", fontWeight: n.read ? 400 : 600, color: C.green }}>{n.title}</p>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted, lineHeight: 1.6 }}>{n.msg}</p>
-              <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: "rgba(26,61,43,0.4)", marginTop: 4 }}>{n.time}</p>
-            </div>
-            {!n.read && <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ backgroundColor: C.gold }} />}
-          </div>
-        ))}
-      </div>
+      {notifs.length === 0 ? (
+        <div className="p-8 text-center" style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.18)` }}>
+          <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.85rem", color: C.muted }}>No notifications yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {notifs.map(n => {
+            const Icon = notifIcon(n.type);
+            return (
+              <div key={n.id} onClick={() => markOne(n.id)}
+                className="flex items-start gap-4 p-4 cursor-pointer hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: n.is_read ? C.cream : "rgba(201,168,76,0.06)", border: `1px solid ${n.is_read ? "rgba(201,168,76,0.18)" : "rgba(201,168,76,0.35)"}` }}>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: n.is_read ? "rgba(201,168,76,0.08)" : "rgba(201,168,76,0.18)" }}>
+                  <Icon size={16} color={C.gold} />
+                </div>
+                <div className="flex-1">
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.88rem", fontWeight: n.is_read ? 400 : 600, color: C.green }}>{n.title}</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.8rem", color: C.muted, lineHeight: 1.6 }}>{n.message}</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.72rem", color: "rgba(26,61,43,0.4)", marginTop: 4 }}>{timeAgo(n.created_at)}</p>
+                </div>
+                {!n.is_read && <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ backgroundColor: C.gold }} />}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1060,9 +1142,9 @@ export function DashboardSupport() {
       {/* Contact options */}
       <div className="grid sm:grid-cols-3 gap-4 mb-8">
         {[
-          { icon: "💬", label: "WhatsApp", sub: "+92 304 9067897", action: () => window.open("https://wa.me/923049067897") },
-          { icon: "📧", label: "Email",    sub: "arwabotanicss@gmail.com", action: () => window.open("mailto:arwabotanicss@gmail.com") },
-          { icon: "📞", label: "Call Us",  sub: "+92 304 9067897", action: () => window.open("tel:+923049067897") },
+          { icon: "💬", label: "WhatsApp", sub: "+92 314 0628188", action: () => window.open("https://wa.me/923140628188") },
+          { icon: "📧", label: "Email",    sub: "havkeddd@gmail.com", action: () => window.open("mailto:havkeddd@gmail.com") },
+          { icon: "📞", label: "Call Us",  sub: "+92 314 0628188", action: () => window.open("tel:+923140628188") },
         ].map(({ icon, label, sub, action }) => (
           <button key={label} onClick={action} className="p-5 text-center hover:shadow-md transition-shadow"
             style={{ backgroundColor: C.cream, border: `1px solid rgba(201,168,76,0.2)` }}>

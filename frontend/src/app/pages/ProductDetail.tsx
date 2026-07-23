@@ -8,6 +8,7 @@ import logoImg from "@/imports/WhatsApp_Image_2026-07-02_at_11.46.54_PM.jpeg";
 import { toast } from "sonner";
 import { useStore } from "../store";
 import { type Product } from "../data";
+import { Loader2 } from "lucide-react";
 import { C, FadeIn, StarRating, GoldLine, SectionTag, ProductCard } from "../shared";
 import {
   ShoppingCart, Heart, Share2, Copy, ChevronDown, ChevronLeft, ChevronRight,
@@ -19,11 +20,106 @@ const FALLBACK_GALLERY_IMAGES = [
   { src: productImg, alt: "Arwa Botaniqs Beauty Soap — product shot with botanical flowers" },
   { src: logoImg,    alt: "Arwa Botaniqs brand identity — AB monogram on forest green" },
 ];
+// ─── 360° drag-rotate viewer ──────────────────────────────────────────────────
+// Uses the product's real photo with a 3D-tilt drag effect (no multiple angle
+// photos exist in the DB yet — once product photography adds real 360 frames,
+// swap the single <img> below for a frame-index lookup driven by `angle`).
+function Viewer360({ image, onClose }: { image: { src: string; alt: string }; onClose: () => void }) {
+  const [angle, setAngle] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const startX = useRef(0);
+  const startAngle = useRef(0);
 
+  const onDown = (clientX: number) => { setDragging(true); startX.current = clientX; startAngle.current = angle; };
+  const onMove = (clientX: number) => { if (!dragging) return; setAngle(startAngle.current + (clientX - startX.current) * 0.4); };
+  const onUp = () => setDragging(false);
+
+  return (
+    <>
+      <motion.div key="v360-bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[90]" style={{ backgroundColor: "rgba(0,0,0,0.9)" }} onClick={onClose} />
+      <motion.div key="v360-box" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+        className="fixed inset-4 z-[91] flex flex-col items-center justify-center gap-4">
+        <button onClick={onClose} className="absolute top-2 right-2 p-2 z-10" aria-label="Close 360 viewer">
+          <X size={24} color="white" />
+        </button>
+        <div
+          className="relative select-none flex items-center justify-center"
+          style={{ width: 320, height: 400, perspective: 900, cursor: dragging ? "grabbing" : "grab" }}
+          onMouseDown={e => onDown(e.clientX)}
+          onMouseMove={e => onMove(e.clientX)}
+          onMouseUp={onUp}
+          onMouseLeave={onUp}
+          onTouchStart={e => onDown(e.touches[0].clientX)}
+          onTouchMove={e => onMove(e.touches[0].clientX)}
+          onTouchEnd={onUp}
+        >
+          {!loaded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 size={28} color={C.gold} className="animate-spin" />
+            </div>
+          )}
+          <img src={image.src} alt={image.alt} draggable={false} onLoad={() => setLoaded(true)}
+            className="max-h-full max-w-full object-contain transition-opacity duration-300"
+            style={{ transform: `rotateY(${angle}deg)`, opacity: loaded ? 1 : 0 }} />
+        </div>
+        <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.75rem", color: "rgba(245,240,232,0.7)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          Drag to rotate
+        </p>
+      </motion.div>
+    </>
+  );
+}
+
+// ─── Product video modal ──────────────────────────────────────────────────────
+function VideoModal({ videoUrl, posterSrc, onClose }: { videoUrl?: string | null; posterSrc: string; onClose: () => void }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <>
+      <motion.div key="vid-bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[90]" style={{ backgroundColor: "rgba(0,0,0,0.9)" }} onClick={onClose} />
+      <motion.div key="vid-box" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+        className="fixed inset-4 z-[91] flex items-center justify-center">
+        <button onClick={onClose} className="absolute top-2 right-2 p-2 z-10" aria-label="Close video">
+          <X size={24} color="white" />
+        </button>
+        {videoUrl ? (
+          <div className="relative max-h-full max-w-full" style={{ aspectRatio: "16/9", width: "min(90vw, 700px)" }}>
+            {!loaded && (
+              <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: "#111" }}>
+                <Loader2 size={28} color={C.gold} className="animate-spin" />
+              </div>
+            )}
+            <video
+              src={videoUrl}
+              poster={posterSrc}
+              autoPlay
+              muted
+              controls
+              playsInline
+              onLoadedData={() => setLoaded(true)}
+              className="w-full h-full object-contain"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 px-8 py-12 text-center" style={{ backgroundColor: C.cream }}>
+            <PlayCircle size={32} color={C.muted} />
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.85rem", color: C.muted }}>
+              No product video has been uploaded yet.
+            </p>
+          </div>
+        )}
+      </motion.div>
+    </>
+  );
+}
 // ─── Image Gallery ────────────────────────────────────────────────────────────
 function ImageGallery({ product }: { product: Product }) {
-  const [active, setActive]   = useState(0);
+  const [active, setActive]     = useState(0);
   const [lightbox, setLightbox] = useState(false);
+  const [view360, setView360]   = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
 
   // Real product photo first, then the brand shots as supporting images.
   const GALLERY_IMAGES = product.imageUrl
@@ -58,21 +154,35 @@ function ImageGallery({ product }: { product: Product }) {
             <ImageWithFallback src={img.src} alt={img.alt} className="w-full h-full object-cover" />
           </button>
         ))}
-        {/* Video placeholder */}
-        <button className="w-16 h-16 flex-shrink-0 flex flex-col items-center justify-center gap-1 border"
+        {/* Video */}
+        <button className="w-16 h-16 flex-shrink-0 flex flex-col items-center justify-center gap-1 border hover:opacity-75 transition-opacity"
           style={{ borderColor: "rgba(26,61,43,0.2)", backgroundColor: C.cream }}
-          onClick={() => toast.info("Product video coming soon!")}>
-          <PlayCircle size={18} color={C.muted} />
-          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.6rem", color: C.muted }}>Video</span>
+          onClick={() => setVideoOpen(true)}>
+          <PlayCircle size={18} color={C.green} />
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.6rem", color: C.green }}>Video</span>
         </button>
-        {/* 360 placeholder */}
-        <button className="w-16 h-16 flex-shrink-0 flex flex-col items-center justify-center gap-1 border"
+        {/* 360° drag view */}
+        <button className="w-16 h-16 flex-shrink-0 flex flex-col items-center justify-center gap-1 border hover:opacity-75 transition-opacity"
           style={{ borderColor: "rgba(26,61,43,0.2)", backgroundColor: C.cream }}
-          onClick={() => toast.info("360° view coming soon!")}>
-          <Rotate360 size={18} color={C.muted} />
-          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.6rem", color: C.muted }}>360°</span>
+          onClick={() => setView360(true)}>
+          <Rotate360 size={18} color={C.green} />
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: "0.6rem", color: C.green }}>360°</span>
         </button>
       </div>
+
+      {/* 360° interactive viewer */}
+      <AnimatePresence>
+        {view360 && (
+          <Viewer360 image={GALLERY_IMAGES[0]} onClose={() => setView360(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Product video */}
+      <AnimatePresence>
+        {videoOpen && (
+          <VideoModal videoUrl={product.videoUrl} posterSrc={GALLERY_IMAGES[0].src} onClose={() => setVideoOpen(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Lightbox */}
       <AnimatePresence>
