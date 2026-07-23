@@ -1,6 +1,22 @@
 import pool from "../config/db.js";
-import { sendOrderConfirmationEmail, sendOrderStatusEmail } from "../utils/emailService.js";
+import {
+    sendOrderConfirmationEmail, sendOrderStatusEmail,
+    sendAdminNewOrderEmail, sendAdminLowStockEmail, sendAdminOutOfStockEmail,
+} from "../utils/emailService.js";
 import { createNotification } from "../utils/notificationService.js";
+
+// Thrown by finalizeOrder() when stock ran out between order creation and finalization
+// (typically: a card order sat pending while the customer was on Stripe's page, and
+// another order took the last units in the meantime). Callers that finalize *after*
+// payment has already been captured (the Stripe webhook) need to distinguish this from
+// a generic failure, since the response is a refund — not just "order failed."
+export class InsufficientStockError extends Error {
+    constructor(productName) {
+        super(`Insufficient stock for ${productName} at finalization time.`);
+        this.code = "INSUFFICIENT_STOCK";
+        this.productName = productName;
+    }
+}
 // Runs the side-effects of a *confirmed* order: takes stock out of inventory,
 // fires the low-stock alert if needed, sends the confirmation email, and
 // creates customer/admin notifications. Called immediately for COD orders,
@@ -21,17 +37,34 @@ export async function finalizeOrder(orderId) {
         const itemsResult = await client.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
         for (const item of itemsResult.rows) {
             const stockResult = await client.query(
-                `UPDATE products SET stock = stock - $1, sold = sold + $1 WHERE id = $2 RETURNING stock, name`,
+                `UPDATE products SET stock = stock - $1, sold = sold + $1 WHERE id = $2 AND stock >= $1 RETURNING stock, sold, name`,
                 [item.quantity, item.product_id]
             );
-            if (stockResult.rows[0].stock <= 5) {
+            if (stockResult.rows.length === 0) {
+                // Someone else took the remaining stock while this order sat pending
+                // (this only matters for the card/Stripe path — COD finalizes immediately
+                // after the stock check in createOrder, so the window is negligible there).
+                throw new InsufficientStockError(item.product_name);
+            }
+            const remainingStock = stockResult.rows[0].stock;
+            if (remainingStock <= 0) {
                 createNotification({
                     userId: null,
-                    title: "Low stock alert",
-                    message: `${stockResult.rows[0].name} is down to ${stockResult.rows[0].stock} units left.`,
+                    title: "Out of stock",
+                    message: `${stockResult.rows[0].name} just sold out.`,
                     type: "admin_stock",
                     link: "/admin/products",
                 });
+                sendAdminOutOfStockEmail(stockResult.rows[0]); // fire-and-forget
+            } else if (remainingStock <= 5) {
+                createNotification({
+                    userId: null,
+                    title: "Low stock alert",
+                    message: `${stockResult.rows[0].name} is down to ${remainingStock} units left.`,
+                    type: "admin_stock",
+                    link: "/admin/products",
+                });
+                sendAdminLowStockEmail(stockResult.rows[0]); // fire-and-forget
             }
         }
 
@@ -39,6 +72,7 @@ export async function finalizeOrder(orderId) {
         await client.query("COMMIT");
 
         sendOrderConfirmationEmail(order, itemsResult.rows);
+        sendAdminNewOrderEmail(order, itemsResult.rows);
         if (order.user_id) {
             createNotification({
                 userId: order.user_id,
@@ -87,6 +121,11 @@ export const getMyOrders = async (req, res) => {
 // ==========================================
 export const createOrder = async (req, res) => {
     const client = await pool.connect();
+    // Declared here (not inside the try) so the catch block below can actually
+    // see them — they used to be `const` inside try, which made `order` and
+    // `payment_method` throw ReferenceError when referenced in catch.
+    let order = null;
+    let payment_method = "cod";
     try {
        const {
             user_id: bodyUserId,  // ignored if a logged-in customer cookie is present — see below
@@ -97,12 +136,13 @@ export const createOrder = async (req, res) => {
             shipping_city,
             shipping_province,
             shipping_postal,
-            payment_method = "cod",
+            payment_method: bodyPaymentMethod = "cod",
             discount = 0,
             shipping_fee = 0,
             notes,
             items,              // [{ product_id, quantity }]
         } = req.body;
+        payment_method = bodyPaymentMethod;
 
         if (!customer_name || !customer_email || !customer_phone || !shipping_address || !shipping_city || !shipping_province) {
             return res.status(400).json({ success: false, message: "Missing required customer or shipping details." });
@@ -171,7 +211,7 @@ export const createOrder = async (req, res) => {
                 payment_method, subtotal, discount, shipping_fee, total, notes || null,
             ]
         );
-        const order = orderResult.rows[0];
+        order = orderResult.rows[0];
 
         for (const item of resolvedItems) {
             await client.query(
@@ -205,6 +245,24 @@ export const createOrder = async (req, res) => {
     } catch (error) {
         await client.query("ROLLBACK");
         console.error(error);
+        if (error.code === "INSUFFICIENT_STOCK" && payment_method === "cod" && order) {
+            // The order row and its items were already committed above (COD calls
+            // finalizeOrder() after COMMIT), so ROLLBACK here is a no-op for them — this
+            // just marks the stuck, unfinalized row as cancelled instead of leaving it in
+            // limbo, and tells the customer honestly rather than a generic 500.
+            try {
+                await pool.query(
+                    `UPDATE orders SET order_status = 'cancelled' WHERE id = $1 AND finalized_at IS NULL`,
+                    [order.id]
+                );
+            } catch (cleanupError) {
+                console.error(`Failed to mark oversold COD order ${order.id} as cancelled:`, cleanupError.message);
+            }
+            return res.status(409).json({
+                success: false,
+                message: `${error.productName} just sold out. Please update your cart and try again.`,
+            });
+        }
         res.status(500).json({ success: false, message: error.message || "Failed to create order." });
     } finally {
         client.release();
@@ -337,17 +395,30 @@ export const updateOrderStatus = async (req, res) => {
             }
         }
 
+        // COD orders never go through the Stripe webhook, so payment_status would
+        // otherwise stay 'unpaid' forever even after the cash was collected on
+        // delivery. Marking a COD order delivered now also marks it paid.
+        const currentFullResult = await client.query(
+            "SELECT payment_method, payment_status FROM orders WHERE id = $1",
+            [id]
+        );
+        const shouldMarkPaid =
+            order_status === "delivered" &&
+            currentFullResult.rows[0]?.payment_method === "cod" &&
+            currentFullResult.rows[0]?.payment_status === "unpaid";
+
         const result = await client.query(
             `
             UPDATE orders
             SET order_status = $1,
                 tracking_number = COALESCE($2, tracking_number),
                 courier = COALESCE($3, courier),
+                payment_status = CASE WHEN $5 THEN 'paid' ELSE payment_status END,
                 updated_at = NOW()
             WHERE id = $4
             RETURNING *;
             `,
-            [order_status, tracking_number || null, courier || null, id]
+            [order_status, tracking_number || null, courier || null, id, shouldMarkPaid]
         );
 
         await client.query(

@@ -2,13 +2,35 @@ import pool from "../config/db.js";
 
 // ==========================================
 // GET DASHBOARD STATS
-// (Only uses data that genuinely exists today: products + categories.
-//  Revenue/Orders/Customer stats will be added once those tables exist —
-//  see Phase 3/4 of the project plan.)
 // ==========================================
 
 export const getDashboardStats = async (req, res) => {
     try {
+
+        // Revenue is counted from delivered orders only, matching how the
+        // admin Overview/Reports UI has always defined "Total Revenue".
+        const orderTotalsResult = await pool.query(`
+            SELECT
+                COUNT(*)::int AS total_orders,
+                COUNT(*) FILTER (WHERE order_status IN ('pending','processing'))::int AS pending_orders,
+                COALESCE(SUM(total) FILTER (WHERE order_status = 'delivered'), 0)::numeric AS total_revenue
+            FROM orders
+        `);
+
+        // Last 14 days of delivered revenue, bucketed by day, zero-filled so the
+        // chart doesn't skip days with no deliveries.
+        const revenueByDayResult = await pool.query(`
+            SELECT
+                to_char(d.day, 'DD Mon') AS date,
+                COALESCE(SUM(o.total), 0)::numeric AS revenue,
+                COUNT(o.id)::int AS orders
+            FROM generate_series(CURRENT_DATE - INTERVAL '13 days', CURRENT_DATE, INTERVAL '1 day') AS d(day)
+            LEFT JOIN orders o
+                ON o.order_status = 'delivered'
+                AND DATE(o.created_at) = d.day
+            GROUP BY d.day
+            ORDER BY d.day ASC
+        `);
 
         const totalsResult = await pool.query(`
             SELECT
@@ -57,6 +79,14 @@ export const getDashboardStats = async (req, res) => {
                 totalCategories: totalCategoriesResult.rows[0].total_categories,
                 topCategories: topCategoriesResult.rows,
                 lowStockList: lowStockListResult.rows,
+                totalOrders: orderTotalsResult.rows[0].total_orders,
+                pendingOrders: orderTotalsResult.rows[0].pending_orders,
+                totalRevenue: Number(orderTotalsResult.rows[0].total_revenue),
+                revenueByDay: revenueByDayResult.rows.map(r => ({
+                    date: r.date,
+                    revenue: Number(r.revenue),
+                    orders: r.orders,
+                })),
             }
         });
 

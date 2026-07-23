@@ -22,6 +22,7 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
+import newsletterRoutes from "./routes/newsletterRoutes.js";
 
 dotenv.config();
 validateEnv();
@@ -42,7 +43,8 @@ const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173")
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-        callback(new Error("Not allowed by CORS"));
+        console.warn(`CORS blocked request from origin: ${origin}`);
+        return callback(null, false); // deny cleanly, no 500, no server error
     },
     credentials: true,
 }));
@@ -88,6 +90,7 @@ app.use("/api/customers", authLimiter, userRoutes); // customer login/register a
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/newsletter", newsletterRoutes);
 
 // ==========================
 // 404 + Global Error Handling
@@ -104,7 +107,10 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
-    await pool.query("SELECT 1");
+    const db = await pool.query("SELECT current_database()");
+console.log("Connected Database:", db.rows[0].current_database);
+
+await pool.query("SELECT 1");
     console.log("✅ PostgreSQL Connected");
 
     app.listen(PORT, () => {

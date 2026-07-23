@@ -113,15 +113,26 @@ export const createProduct = async (req, res) => {
 
         let imageUrl = null;
         let imagePublicId = null;
+        let videoUrl = null;
 
         // Upload image to Cloudinary
-        if (req.file) {
-            const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+        if (req.files?.image?.[0]) {
+            const uploadResult = await cloudinary.uploader.upload(req.files.image[0].path, {
                 folder: "arwa-products"
             });
 
             imageUrl = uploadResult.secure_url;
             imagePublicId = uploadResult.public_id;
+        }
+
+        // Upload video to Cloudinary (separate resource_type required for video)
+        if (req.files?.video?.[0]) {
+            const videoUploadResult = await cloudinary.uploader.upload(req.files.video[0].path, {
+                folder: "arwa-products",
+                resource_type: "video",
+            });
+
+            videoUrl = videoUploadResult.secure_url;
         }
 
         if (!category_id || !name || !slug || !price || !sku) {
@@ -163,11 +174,12 @@ export const createProduct = async (req, res) => {
                 featured,
                 status,
                 image_url,
-                image_public_id
+                image_public_id,
+                video_url
             )
             VALUES
             (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
             )
             RETURNING *;
             `,
@@ -192,7 +204,8 @@ export const createProduct = async (req, res) => {
                 featured,
                 status,
                 imageUrl,
-                imagePublicId
+                imagePublicId,
+                videoUrl
             ]
         );
 
@@ -238,9 +251,10 @@ export const updateProduct = async (req, res) => {
 
         let imageUrl = product.image_url;
         let imagePublicId = product.image_public_id;
+        let videoUrl = product.video_url;
 
         // Upload new image if provided
-        if (req.file) {
+        if (req.files?.image?.[0]) {
 
             // Delete old image
             if (imagePublicId) {
@@ -248,7 +262,7 @@ export const updateProduct = async (req, res) => {
             }
 
             const uploadResult = await cloudinary.uploader.upload(
-                req.file.path,
+                req.files.image[0].path,
                 {
                     folder: "arwa-products",
                 }
@@ -257,6 +271,15 @@ export const updateProduct = async (req, res) => {
             imageUrl = uploadResult.secure_url;
             imagePublicId = uploadResult.public_id;
         }
+
+        // Upload new video if provided (no destroy needed — no public_id tracked for video yet)
+        if (req.files?.video?.[0]) {
+            const videoUploadResult = await cloudinary.uploader.upload(
+                req.files.video[0].path,
+                { folder: "arwa-products", resource_type: "video" }
+            );
+            videoUrl = videoUploadResult.secure_url;
+        }   
 
         const {
             category_id,
@@ -314,8 +337,9 @@ export const updateProduct = async (req, res) => {
                 status=$19,
                 image_url=$20,
                 image_public_id=$21,
+                video_url=$22,
                 updated_at=NOW()
-            WHERE id=$22
+            WHERE id=$23
             RETURNING *;
             `,
             [
@@ -340,6 +364,7 @@ export const updateProduct = async (req, res) => {
                 status,
                 imageUrl,
                 imagePublicId,
+                videoUrl,
                 id
             ]
         );

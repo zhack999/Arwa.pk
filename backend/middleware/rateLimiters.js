@@ -28,6 +28,18 @@ export const orderLimiter = rateLimit({
   message: { success: false, message: "Too many orders placed. Please try again later." },
 });
 
+// OTP-related endpoints (verify, resend, forgot-password, reset). Tighter than
+// authLimiter — otp_attempts in the DB already caps wrong-guess attempts on a
+// single OTP (see otpService.js), but this stops someone from working around
+// that by requesting fresh OTPs for the same or many different email addresses.
+export const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 min
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many attempts. Please try again in a few minutes." },
+});
+
 // General API-wide baseline, applied globally as a safety net
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

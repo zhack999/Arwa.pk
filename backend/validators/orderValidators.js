@@ -7,7 +7,7 @@ export const placeOrderValidation = [
   body("shipping_address").trim().notEmpty().withMessage("Shipping address is required").isLength({ max: 500 }),
   body("shipping_city").trim().notEmpty().withMessage("City is required").isLength({ max: 100 }),
   body("shipping_province").trim().notEmpty().withMessage("Province is required").isLength({ max: 100 }),
-  body("payment_method").trim().isIn(["cod", "stripe", "jazzcash", "easypaisa"]).withMessage("Invalid payment method"),
+  body("payment_method").trim().isIn(["cod", "card", "jazzcash", "easypaisa"]).withMessage("Invalid payment method"),
   body("items").isArray({ min: 1 }).withMessage("Cart cannot be empty"),
   body("items.*.product_id").isUUID().withMessage("Invalid product in cart"),
   body("items.*.quantity").isInt({ min: 1 }).withMessage("Quantity must be at least 1"),
